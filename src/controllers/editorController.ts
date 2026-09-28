@@ -20,6 +20,7 @@ import type {
   SavedItem,
   UpdateItemInput,
 } from '../contracts';
+import { MAX_TAG_CHARS, MAX_TAGS } from '../domain';
 import { normalizeTagDisplay, resolveImageState, tagKey, unexpectedRepositoryError } from './helpers';
 import { ObservableController } from './observable';
 
@@ -83,6 +84,7 @@ export class EditorController extends ObservableController implements EditorCont
   private touched = new Set<PersistentField>();
   private pickerPending = false;
   private loadGeneration = 0;
+  private conflictBaseline: SavedItem | null = null;
 
   constructor(
     private readonly params: EditorControllerParams,
@@ -120,6 +122,8 @@ export class EditorController extends ObservableController implements EditorCont
       onRetry: () => { void this.retry(); },
       onConfirmDiscard: () => this.confirmDiscard(),
       onKeepEditing: () => this.keepEditing(),
+      onConfirmConflictOverwrite: () => { void this.confirmConflictOverwrite(); },
+      onCancelConflictOverwrite: () => this.cancelConflictOverwrite(),
       onBackToInbox: () => this.backToInbox(),
     };
   }
@@ -147,6 +151,7 @@ export class EditorController extends ObservableController implements EditorCont
 
   requestExit(): void {
     if (this.isMutationPending()) return;
+    if (this.state.kind === 'ready' && this.state.conflictConfirmationOpen) return;
     if (this.state.kind === 'ready' && this.state.isDirty) {
       this.state = { ...this.state, discardConfirmationOpen: true };
       this.emitChange();
@@ -162,10 +167,11 @@ export class EditorController extends ObservableController implements EditorCont
     screenError: AppError | null = null,
     mutation: Extract<EditorState, { kind: 'ready' }>['mutation'] = { kind: 'idle' },
     discardConfirmationOpen = false,
+    conflictConfirmationOpen = false,
   ): Extract<EditorState, { kind: 'ready' }> {
     return {
       kind: 'ready', draft, fieldErrors, mutation, screenError, imagePreview,
-      isDirty: this.isDraftDirty(draft), discardConfirmationOpen,
+      isDirty: this.isDraftDirty(draft), discardConfirmationOpen, conflictConfirmationOpen,
     };
   }
 
@@ -218,18 +224,18 @@ export class EditorController extends ObservableController implements EditorCont
     if (!ready || ready.mutation.kind === 'pending') return;
     const display = normalizeTagDisplay(ready.draft.tagEntry);
     if (!display) return;
-    if (display.length > 24) {
+    if (Array.from(display).length > MAX_TAG_CHARS) {
       this.state = this.readyState(ready.draft, ready.imagePreview,
-        withFieldError(ready.fieldErrors, 'tags', 'Tags can be at most 24 characters.'),
+        withFieldError(ready.fieldErrors, 'tags', `Tags can be at most ${MAX_TAG_CHARS} characters.`),
         ready.screenError, ready.mutation, ready.discardConfirmationOpen);
       this.emitChange();
       return;
     }
     const key = display.toLowerCase();
     const duplicate = ready.draft.tags.some(tag => tagKey(tag) === key);
-    if (!duplicate && ready.draft.tags.length >= 8) {
+    if (!duplicate && ready.draft.tags.length >= MAX_TAGS) {
       this.state = this.readyState(ready.draft, ready.imagePreview,
-        withFieldError(ready.fieldErrors, 'tags', 'You can add up to 8 tags.'),
+        withFieldError(ready.fieldErrors, 'tags', `You can add up to ${MAX_TAGS} tags.`),
         ready.screenError, ready.mutation, ready.discardConfirmationOpen);
       this.emitChange();
       return;
@@ -294,7 +300,7 @@ export class EditorController extends ObservableController implements EditorCont
 
   private async save(): Promise<void> {
     const ready = this.currentReady();
-    if (!ready || ready.mutation.kind === 'pending') return;
+    if (!ready || ready.mutation.kind === 'pending' || ready.conflictConfirmationOpen) return;
 
     if (normalizeTagDisplay(ready.draft.tagEntry)) {
       this.state = this.readyState(ready.draft, ready.imagePreview,
@@ -382,6 +388,7 @@ export class EditorController extends ObservableController implements EditorCont
       return;
     }
     this.baselineItem = result.value;
+    this.conflictBaseline = null;
     this.baselineDraft = cloneDraft(current.draft);
     this.touched.clear();
     this.state = this.readyState(current.draft, current.imagePreview, {}, null, { kind: 'idle' }, false);
@@ -404,13 +411,14 @@ export class EditorController extends ObservableController implements EditorCont
     try { result = await this.repository.update(input); }
     catch { result = { ok: false, error: unexpectedRepositoryError() }; }
     if (!result.ok) {
-      if (result.error.code === 'CONFLICT') await this.rebaseAfterConflict(result.error);
+      if (result.error.code === 'CONFLICT') await this.handleConflict(result.error);
       else this.applyMutationFailure('edit', result.error);
       return;
     }
     const current = this.currentReady();
     if (!current) return;
     this.baselineItem = result.value;
+    this.conflictBaseline = null;
     this.baselineDraft = cloneDraft(current.draft);
     this.touched.clear();
     this.state = this.readyState(current.draft, current.imagePreview, {}, null, { kind: 'idle' }, false);
@@ -434,7 +442,7 @@ export class EditorController extends ObservableController implements EditorCont
     this.emitChange();
   }
 
-  private async rebaseAfterConflict(error: AppError): Promise<void> {
+  private async handleConflict(error: AppError): Promise<void> {
     const ready = this.currentReady();
     if (!ready || this.params.mode !== 'edit') return;
     let latest: Awaited<ReturnType<ItemRepository['get']>>;
@@ -447,40 +455,38 @@ export class EditorController extends ObservableController implements EditorCont
         return;
       }
       this.state = this.readyState(ready.draft, ready.imagePreview, ready.fieldErrors, error,
-        { kind: 'failed', operation: 'edit', error }, ready.discardConfirmationOpen);
+        { kind: 'failed', operation: 'edit', error }, ready.discardConfirmationOpen, false);
       this.emitChange();
       return;
     }
 
-    const freshBaseline = draftFromItem(latest.value);
-    const merged = cloneDraft(freshBaseline);
-    merged.tagEntry = ready.draft.tagEntry;
-    for (const field of this.touched) this.copyTouchedField(ready.draft, merged, field);
-
-    this.baselineItem = latest.value;
-    this.baselineDraft = cloneDraft(freshBaseline);
-    const oldTouched = [...this.touched];
-    this.touched.clear();
-    for (const field of oldTouched) this.updateTouched(field, merged);
-
-    let preview = ready.imagePreview;
-    if (merged.type === 'image' && !this.touched.has('image')) {
-      const resolved = await resolveImageState(latest.value, this.imageStore);
-      preview = resolved.ok ? resolved.value : { kind: 'missing' };
-    }
-    this.state = this.readyState(merged, preview, ready.fieldErrors, error,
-      { kind: 'failed', operation: 'edit', error }, ready.discardConfirmationOpen);
+    // Preserve the user's draft exactly. The fresh item is held only as the
+    // candidate timestamp for an explicit overwrite decision. Nothing is
+    // rebased or retried automatically.
+    this.conflictBaseline = latest.value;
+    this.state = this.readyState(ready.draft, ready.imagePreview, ready.fieldErrors, null,
+      { kind: 'failed', operation: 'edit', error }, false, true);
     this.emitChange();
   }
 
-  private copyTouchedField(source: EditorDraft, target: EditorDraft, field: PersistentField): void {
-    if (source.type !== target.type) return;
-    if (field === 'title') target.title = source.title;
-    else if (field === 'tags') target.tags = [...source.tags];
-    else if (field === 'body' && source.type === 'note' && target.type === 'note') target.body = source.body;
-    else if (field === 'url' && source.type === 'link' && target.type === 'link') target.url = source.url;
-    else if (field === 'caption' && source.type === 'image' && target.type === 'image') target.caption = source.caption;
-    else if (field === 'image' && source.type === 'image' && target.type === 'image') target.image = { ...source.image };
+  private async confirmConflictOverwrite(): Promise<void> {
+    const ready = this.currentReady();
+    const latest = this.conflictBaseline;
+    if (!ready || !ready.conflictConfirmationOpen || !latest || this.params.mode !== 'edit') return;
+    this.conflictBaseline = null;
+    this.state = this.readyState(ready.draft, ready.imagePreview, ready.fieldErrors, null,
+      { kind: 'idle' }, false, false);
+    this.emitChange();
+    await this.updateItem(this.buildUpdateInput(ready.draft, latest));
+  }
+
+  private cancelConflictOverwrite(): void {
+    const ready = this.currentReady();
+    if (!ready || !ready.conflictConfirmationOpen || this.isMutationPending()) return;
+    this.conflictBaseline = null;
+    this.state = this.readyState(ready.draft, ready.imagePreview, ready.fieldErrors, null,
+      { kind: 'idle' }, false, false);
+    this.emitChange();
   }
 
   private async acceptLoadedItem(item: SavedItem, generation: number): Promise<void> {
@@ -497,6 +503,7 @@ export class EditorController extends ObservableController implements EditorCont
       preview = image.value;
     }
     this.baselineItem = item;
+    this.conflictBaseline = null;
     this.baselineDraft = cloneDraft(draft);
     this.touched.clear();
     this.state = this.readyState(draft, preview);

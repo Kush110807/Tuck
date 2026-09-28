@@ -8,6 +8,19 @@ const note: SavedItem = { ...fixtureSpec.note, url: null, imagePath: null };
 const image: SavedItem = { ...fixtureSpec.image, url: null };
 
 describe('EditorController', () => {
+
+  it('uses domain tag length semantics for multi-code-unit Unicode characters', () => {
+    const controller = createEditorController(
+      { mode: 'create', type: 'note', origin: 'Inbox' },
+      new MockItemRepository(), new MockImageStore(), new MockImagePicker(), new MockMailbox(), new MockNavigation(),
+    );
+    const tag = '😀'.repeat(24);
+    controller.props.onTagEntryChange(tag);
+    controller.props.onAddTag();
+    if (controller.props.state.kind !== 'ready') throw new Error('expected ready');
+    expect(controller.props.state.fieldErrors.tags).toBeUndefined();
+    expect(controller.props.state.draft.tags).toEqual([tag]);
+  });
   it('tracks dirty state and requires confirmation before discarding', () => {
     const navigation = new MockNavigation();
     const controller = createEditorController(
@@ -83,7 +96,7 @@ describe('EditorController', () => {
     expect(navigation.calls).toEqual([{ name: 'completeCreate', args: [saved.id] }]);
   });
 
-  it('rebases an edit after conflict, preserves touched fields, and retries with the fresh timestamp', async () => {
+  it('preserves the draft after conflict and requires explicit overwrite confirmation', async () => {
     const repository = new MockItemRepository();
     const latest: SavedItem = { ...note, body: 'Changed on another screen.', updatedAt: note.updatedAt + 100 };
     let getAttempt = 0;
@@ -107,11 +120,17 @@ describe('EditorController', () => {
     await flushAsync();
 
     if (controller.props.state.kind !== 'ready' || controller.props.state.draft.type !== 'note') throw new Error('expected note ready');
-    expect(controller.props.state.screenError?.code).toBe('CONFLICT');
+    expect(controller.props.state.mutation.kind).toBe('failed');
+    expect(controller.props.state.conflictConfirmationOpen).toBe(true);
     expect(controller.props.state.draft.title).toBe('My local title');
-    expect(controller.props.state.draft.body).toBe('Changed on another screen.');
+    expect(controller.props.state.draft.body).toBe(note.body);
 
     controller.props.onSave();
+    await flushAsync();
+    expect(repository.updateCalls).toHaveLength(1);
+    expect(navigation.calls).toHaveLength(0);
+
+    controller.props.onConfirmConflictOverwrite();
     await flushAsync();
     expect(repository.updateCalls).toHaveLength(2);
     expect(repository.updateCalls[1]).toEqual({
@@ -122,6 +141,27 @@ describe('EditorController', () => {
     });
     expect(mailbox.published[0]).toMatchObject({ destination: 'Detail', operation: 'edit', itemId: note.id });
     expect(navigation.calls.at(-1)).toEqual({ name: 'completeEdit', args: [note.id, 'Inbox'] });
+  });
+
+  it('can decline a conflict overwrite without losing the local draft', async () => {
+    const repository = new MockItemRepository();
+    repository.getImpl = async () => ({ ok: true, value: note });
+    repository.updateImpl = async () => ({ ok: false, error: { code: 'CONFLICT', message: 'Stale timestamp.' } });
+    const controller = createEditorController(
+      { mode: 'edit', id: note.id, origin: 'Inbox' }, repository,
+      new MockImageStore(), new MockImagePicker(), new MockMailbox(), new MockNavigation(),
+    );
+
+    await controller.load();
+    controller.props.onTitleChange('Keep this draft');
+    controller.props.onSave();
+    await flushAsync();
+    controller.props.onCancelConflictOverwrite();
+
+    if (controller.props.state.kind !== 'ready') throw new Error('expected ready');
+    expect(controller.props.state.conflictConfirmationOpen).toBe(false);
+    expect(controller.props.state.draft.title).toBe('Keep this draft');
+    expect(controller.props.state.isDirty).toBe(true);
   });
 
   it('maps a missing edit target to the missing editor state', async () => {

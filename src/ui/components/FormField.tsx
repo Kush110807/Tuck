@@ -3,6 +3,14 @@ import type { FormFieldProps } from '../../contracts';
 import { colors, minimumTouchSize, radii, space } from '../../theme/tokens';
 
 export function FormField({ label, value, onChangeText, error, multiline = false, maxLength }: FormFieldProps) {
+  const characterCount = Array.from(value).length;
+  const handleChangeText = (next: string) => {
+    if (maxLength === undefined) {
+      onChangeText(next);
+      return;
+    }
+    onChangeText(Array.from(next).slice(0, maxLength).join(''));
+  };
   const errorId = error ? `${label.replace(/\s+/g, '-').toLowerCase()}-error` : undefined;
   return (
     <View style={styles.container}>
@@ -11,14 +19,13 @@ export function FormField({ label, value, onChangeText, error, multiline = false
         accessibilityLabel={label}
         accessibilityHint={error ? `Error: ${error}` : undefined}
         value={value}
-        onChangeText={onChangeText}
+        onChangeText={handleChangeText}
         multiline={multiline}
-        maxLength={maxLength}
         textAlignVertical={multiline ? 'top' : 'center'}
         style={[styles.input, multiline && styles.multiline, error && styles.inputError]}
       />
       {error ? <Text nativeID={errorId} accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-      {maxLength ? <Text style={styles.count}>{value.length.toLocaleString()} / {maxLength.toLocaleString()}</Text> : null}
+      {maxLength ? <Text style={styles.count}>{characterCount.toLocaleString()} / {maxLength.toLocaleString()}</Text> : null}
     </View>
   );
 }

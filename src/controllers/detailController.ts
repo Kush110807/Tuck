@@ -22,7 +22,6 @@ export class DetailController extends ObservableController implements DetailCont
   private feedback: Feedback | null = null;
   private deleteConfirmationOpen = false;
   private generation = 0;
-  private hasLoaded = false;
 
   constructor(
     private readonly id: ItemId,
@@ -63,7 +62,6 @@ export class DetailController extends ObservableController implements DetailCont
       if (generation !== this.generation) return;
       if (!result.ok) {
         this.state = result.error.code === 'NOT_FOUND' ? { kind: 'missing' } : { kind: 'failed', error: result.error };
-        this.hasLoaded = true;
         this.emitChange();
         return;
       }
@@ -72,12 +70,10 @@ export class DetailController extends ObservableController implements DetailCont
       this.state = image.ok
         ? { kind: 'ready', item: result.value, image: image.value }
         : { kind: 'failed', error: image.error };
-      this.hasLoaded = true;
       this.emitChange();
     } catch {
       if (generation !== this.generation) return;
       this.state = { kind: 'failed', error: unexpectedRepositoryError() };
-      this.hasLoaded = true;
       this.emitChange();
     }
   }
@@ -87,10 +83,8 @@ export class DetailController extends ObservableController implements DetailCont
     if (notices.length > 0) {
       this.feedback = notices[notices.length - 1].feedback;
       this.emitChange();
-      await this.refresh();
-      return;
     }
-    if (!this.hasLoaded) await this.refresh();
+    await this.refresh();
   }
 
   private readyItem(): SavedItem | null {

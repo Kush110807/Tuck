@@ -35,6 +35,8 @@ describe('controller adapters', () => {
     const opener = new ReactNativeLinkOpener(async url => { opened.push(url); });
     await expect(opener.openHttpUrl('https://example.com')).resolves.toEqual({ ok: true, value: undefined });
     expect(opened).toEqual(['https://example.com']);
+    const malformed = await opener.openHttpUrl('https://');
+    expect(malformed.ok).toBe(false);
     const blocked = await opener.openHttpUrl('file:///etc/passwd');
     expect(blocked.ok).toBe(false);
     if (!blocked.ok) expect(blocked.error.code).toBe('OPEN_FAILED');

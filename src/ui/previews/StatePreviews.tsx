@@ -125,6 +125,8 @@ const editorBase: Omit<EditorScreenProps, 'state' | 'mode'> = {
   onRetry: noOp,
   onConfirmDiscard: noOp,
   onKeepEditing: noOp,
+  onConfirmConflictOverwrite: noOp,
+  onCancelConflictOverwrite: noOp,
   onBackToInbox: noOp,
 };
 
@@ -137,23 +139,28 @@ const noteDraft = {
 };
 
 export function EditorReadyPreview() {
-  return <EditorScreen {...editorBase} mode="edit" state={{ kind: 'ready', draft: noteDraft, fieldErrors: {}, mutation: { kind: 'idle' }, screenError: null, imagePreview: { kind: 'none' }, isDirty: true, discardConfirmationOpen: false }} />;
+  return <EditorScreen {...editorBase} mode="edit" state={{ kind: 'ready', draft: noteDraft, fieldErrors: {}, mutation: { kind: 'idle' }, screenError: null, imagePreview: { kind: 'none' }, isDirty: true, discardConfirmationOpen: false, conflictConfirmationOpen: false }} />;
 }
 
 export function EditorPendingPreview() {
-  return <EditorScreen {...editorBase} mode="edit" state={{ kind: 'ready', draft: noteDraft, fieldErrors: {}, mutation: { kind: 'pending', operation: 'edit' }, screenError: null, imagePreview: { kind: 'none' }, isDirty: true, discardConfirmationOpen: false }} />;
+  return <EditorScreen {...editorBase} mode="edit" state={{ kind: 'ready', draft: noteDraft, fieldErrors: {}, mutation: { kind: 'pending', operation: 'edit' }, screenError: null, imagePreview: { kind: 'none' }, isDirty: true, discardConfirmationOpen: false, conflictConfirmationOpen: false }} />;
 }
 
 export function EditorValidationAndFailurePreview() {
-  return <EditorScreen {...editorBase} mode="edit" state={{ kind: 'ready', draft: { ...noteDraft, title: '' }, fieldErrors: { title: 'Title is required.' }, mutation: { kind: 'failed', operation: 'edit', error: { code: 'CONFLICT', message: 'This item changed elsewhere. Reload and try again.' } }, screenError: null, imagePreview: { kind: 'none' }, isDirty: true, discardConfirmationOpen: false }} />;
+  return <EditorScreen {...editorBase} mode="edit" state={{ kind: 'ready', draft: { ...noteDraft, title: '' }, fieldErrors: { title: 'Title is required.' }, mutation: { kind: 'failed', operation: 'edit', error: { code: 'CONFLICT', message: 'This item changed elsewhere. Reload and try again.' } }, screenError: null, imagePreview: { kind: 'none' }, isDirty: true, discardConfirmationOpen: false, conflictConfirmationOpen: false }} />;
 }
 
 export function EditorDiscardConfirmationPreview() {
-  return <EditorScreen {...editorBase} mode="edit" state={{ kind: 'ready', draft: noteDraft, fieldErrors: {}, mutation: { kind: 'idle' }, screenError: null, imagePreview: { kind: 'none' }, isDirty: true, discardConfirmationOpen: true }} />;
+  return <EditorScreen {...editorBase} mode="edit" state={{ kind: 'ready', draft: noteDraft, fieldErrors: {}, mutation: { kind: 'idle' }, screenError: null, imagePreview: { kind: 'none' }, isDirty: true, discardConfirmationOpen: true, conflictConfirmationOpen: false }} />;
+}
+
+export function EditorConflictConfirmationPreview() {
+  const conflict = { code: 'CONFLICT' as const, message: 'This item changed since it was opened.' };
+  return <EditorScreen {...editorBase} mode="edit" state={{ kind: 'ready', draft: noteDraft, fieldErrors: {}, mutation: { kind: 'failed', operation: 'edit', error: conflict }, screenError: null, imagePreview: { kind: 'none' }, isDirty: true, discardConfirmationOpen: false, conflictConfirmationOpen: true }} />;
 }
 
 export function EditorImageMissingPreview() {
-  return <EditorScreen {...editorBase} mode="edit" state={{ kind: 'ready', draft: { type: 'image', title: 'Colour study', caption: 'Muted green and ivory.', tags: ['Ideas'], tagEntry: '', image: { kind: 'existing', path: 'images/fixture-card.png' } }, fieldErrors: {}, mutation: { kind: 'idle' }, screenError: null, imagePreview: { kind: 'missing' }, isDirty: false, discardConfirmationOpen: false }} />;
+  return <EditorScreen {...editorBase} mode="edit" state={{ kind: 'ready', draft: { type: 'image', title: 'Colour study', caption: 'Muted green and ivory.', tags: ['Ideas'], tagEntry: '', image: { kind: 'existing', path: 'images/fixture-card.png' } }, fieldErrors: {}, mutation: { kind: 'idle' }, screenError: null, imagePreview: { kind: 'missing' }, isDirty: false, discardConfirmationOpen: false, conflictConfirmationOpen: false }} />;
 }
 
 export function EditorLoadingPreview() {

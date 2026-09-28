@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, type ReactNode } from 'react';
 import { BackHandler } from 'react-native';
 import { NavigationContainer, useFocusEffect } from '@react-navigation/native';
 import { createNativeStackNavigator, type NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -39,7 +39,7 @@ function useServices(): ProductionServices {
   return value;
 }
 
-function ScreenFrame({ children }: { children: React.ReactNode }) {
+function ScreenFrame({ children }: { children: ReactNode }) {
   return <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top', 'bottom']}>{children}</SafeAreaView>;
 }
 

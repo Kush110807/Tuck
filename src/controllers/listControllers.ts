@@ -21,7 +21,6 @@ abstract class BaseListController extends ObservableController {
   protected state: ListState;
   protected feedback: Feedback | null = null;
   private generation = 0;
-  private hasLoaded = false;
 
   protected constructor(
     protected readonly route: ListRoute,
@@ -56,10 +55,10 @@ abstract class BaseListController extends ObservableController {
     if (notices.length > 0) {
       this.feedback = notices[notices.length - 1].feedback;
       this.emitChange();
-      await this.refresh();
-      return;
     }
-    if (!this.hasLoaded) await this.refresh();
+    // Always refresh on focus. Cross-list mutations can make a previously mounted
+    // list stale even when its success feedback belongs to the other destination.
+    await this.refresh();
   }
 
   protected retry(): void {
@@ -83,7 +82,6 @@ abstract class BaseListController extends ObservableController {
       if (generation !== this.generation) return;
       if (!result.ok) {
         this.state = { kind: 'failed', query, previousRows, error: result.error };
-        this.hasLoaded = true;
         this.emitChange();
         return;
       }
@@ -96,12 +94,10 @@ abstract class BaseListController extends ObservableController {
         rows,
         availableTags: collectAvailableTags(result.value),
       };
-      this.hasLoaded = true;
       this.emitChange();
     } catch {
       if (generation !== this.generation) return;
       this.state = { kind: 'failed', query, previousRows, error: unexpectedRepositoryError() };
-      this.hasLoaded = true;
       this.emitChange();
     }
   }

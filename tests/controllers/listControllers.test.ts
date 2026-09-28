@@ -51,7 +51,7 @@ describe('InboxController', () => {
     expect(controller.props.state.rows).toHaveLength(1);
   });
 
-  it('consumes success feedback on focus and refreshes once for the notice', async () => {
+  it('consumes success feedback once but refreshes on every focus', async () => {
     const repository = new MockItemRepository();
     repository.listImpl = async () => ({ ok: true, value: [note] });
     const mailbox = createMutationMailbox();
@@ -64,7 +64,7 @@ describe('InboxController', () => {
     expect(controller.props.feedback).toEqual({ kind: 'success', message: 'Item archived.' });
 
     await controller.onFocus();
-    expect(repository.listCalls).toHaveLength(1);
+    expect(repository.listCalls).toHaveLength(2);
     expect(mailbox.consume('Inbox')).toEqual([]);
   });
 

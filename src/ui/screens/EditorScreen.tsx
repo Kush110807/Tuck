@@ -40,7 +40,10 @@ export function EditorScreen(props: EditorScreenProps) {
     );
   }
 
-  const { draft, fieldErrors, mutation, screenError, imagePreview, isDirty, discardConfirmationOpen } = state;
+  const {
+    draft, fieldErrors, mutation, screenError, imagePreview, isDirty,
+    discardConfirmationOpen, conflictConfirmationOpen,
+  } = state;
   const pending = mutation.kind === 'pending';
   const title = mode === 'create' ? `New ${typeLabels[draft.type]}` : `Edit ${typeLabels[draft.type]}`;
   const saveLabel = pending ? 'Saving…' : mode === 'create' ? 'Save item' : 'Save changes';
@@ -138,6 +141,15 @@ export function EditorScreen(props: EditorScreenProps) {
         destructive
         onConfirm={props.onConfirmDiscard}
         onCancel={props.onKeepEditing}
+      />
+      <ConfirmDialog
+        visible={conflictConfirmationOpen}
+        title="Newer version found"
+        message="This item changed after you opened it. Your draft is preserved. Overwrite the newer saved version with the fields you changed?"
+        confirmLabel="Overwrite newer version"
+        destructive
+        onConfirm={props.onConfirmConflictOverwrite}
+        onCancel={props.onCancelConflictOverwrite}
       />
     </>
   );

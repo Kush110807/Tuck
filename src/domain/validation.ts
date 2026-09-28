@@ -62,34 +62,40 @@ function validateTitle(value: unknown): ValidationResult<string> {
 }
 
 function validateBody(value: unknown): ValidationResult<string> {
-  if (typeof value !== 'string' || !value.trim()) {
+  if (typeof value !== 'string') {
     return { ok: false, error: validationError('Note body is required.', 'body') };
   }
-  if (characterCount(value) > MAX_BODY_CHARS) {
+  const body = value.trim();
+  if (!body) return { ok: false, error: validationError('Note body is required.', 'body') };
+  if (characterCount(body) > MAX_BODY_CHARS) {
     return { ok: false, error: validationError(`Note body must be ${MAX_BODY_CHARS.toLocaleString()} characters or fewer.`, 'body') };
   }
-  return { ok: true, value };
+  return { ok: true, value: body };
 }
 
 function validateCaption(value: unknown): ValidationResult<string | null> {
   if (value === null) return { ok: true, value: null };
   if (typeof value !== 'string') return { ok: false, error: validationError('Caption must be text.', 'caption') };
-  if (characterCount(value) > MAX_BODY_CHARS) {
+  const caption = value.trim();
+  if (!caption) return { ok: true, value: null };
+  if (characterCount(caption) > MAX_BODY_CHARS) {
     return { ok: false, error: validationError(`Caption must be ${MAX_BODY_CHARS.toLocaleString()} characters or fewer.`, 'caption') };
   }
-  return { ok: true, value };
+  return { ok: true, value: caption };
 }
 
 function validateUrl(value: unknown): ValidationResult<string> {
-  if (typeof value !== 'string' || !value) {
+  if (typeof value !== 'string') {
     return { ok: false, error: validationError('URL is required.', 'url') };
   }
-  if (characterCount(value) > MAX_URL_CHARS) {
+  const url = value.trim();
+  if (!url) return { ok: false, error: validationError('URL is required.', 'url') };
+  if (characterCount(url) > MAX_URL_CHARS) {
     return { ok: false, error: validationError(`URL must be ${MAX_URL_CHARS.toLocaleString()} characters or fewer.`, 'url') };
   }
 
   try {
-    const parsed = new URL(value);
+    const parsed = new URL(url);
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
       return { ok: false, error: validationError('URL must start with http:// or https://.', 'url') };
     }
@@ -97,7 +103,7 @@ function validateUrl(value: unknown): ValidationResult<string> {
     return { ok: false, error: validationError('Enter a valid http:// or https:// URL.', 'url') };
   }
 
-  return { ok: true, value };
+  return { ok: true, value: url };
 }
 
 function validateTags(value: unknown): ValidationResult<ValidatedTags> {

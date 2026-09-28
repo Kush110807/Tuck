@@ -5,17 +5,18 @@ import type {
   ItemListRow,
   SavedItem,
 } from '../contracts';
+import { normalizeComparableText, toComparisonKey } from '../domain';
 
 export function unexpectedRepositoryError(message = 'The local item store could not be reached.'): AppError {
   return { code: 'DB_FAILED', message };
 }
 
 export function normalizeTagDisplay(value: string): string {
-  return value.normalize('NFKC').trim().replace(/\s+/gu, ' ');
+  return normalizeComparableText(value);
 }
 
 export function tagKey(value: string): string {
-  return normalizeTagDisplay(value).toLowerCase();
+  return toComparisonKey(value);
 }
 
 export function collectAvailableTags(items: readonly SavedItem[]): readonly string[] {
@@ -24,7 +25,7 @@ export function collectAvailableTags(items: readonly SavedItem[]): readonly stri
   for (const item of items) {
     for (const tag of item.tags) {
       const display = normalizeTagDisplay(tag);
-      const key = display.toLowerCase();
+      const key = tagKey(display);
       if (!display || seen.has(key)) continue;
       seen.add(key);
       result.push(display);

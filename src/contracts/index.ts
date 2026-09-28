@@ -1,4 +1,4 @@
-/** Phase 1A shared contracts. Master owns changes to this file. */
+/** Shared Tuck Stage 1 contracts. Master owns Phase 2 integration changes to this file. */
 export type ItemId = string;
 export type ItemType = 'note' | 'link' | 'image';
 export type ListRoute = 'Inbox' | 'Archive';
@@ -112,7 +112,7 @@ export type EditorState =
   | { kind: 'ready'; draft: EditorDraft; fieldErrors: FieldErrors;
       mutation: MutationState; screenError: AppError | null;
       imagePreview: ImageViewState; isDirty: boolean;
-      discardConfirmationOpen: boolean }
+      discardConfirmationOpen: boolean; conflictConfirmationOpen: boolean }
   | { kind: 'missing' }
   | { kind: 'failed'; error: AppError };
 
@@ -183,7 +183,9 @@ export interface EditorScreenProps {
   onTagEntryChange(value: string): void; onAddTag(): void;
   onRemoveTag(tagKey: string): void; onPickImage(): void;
   onSave(): void; onCancel(): void; onRetry(): void;
-  onConfirmDiscard(): void; onKeepEditing(): void; onBackToInbox(): void;
+  onConfirmDiscard(): void; onKeepEditing(): void;
+  onConfirmConflictOverwrite(): void; onCancelConflictOverwrite(): void;
+  onBackToInbox(): void;
 }
 export interface DetailScreenProps {
   state: DetailState; mutation: MutationState; feedback: Feedback | null;
