@@ -28,7 +28,12 @@
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "export:android": "expo export --platform android --output-dir dist"
+    "export:android": "expo export --platform android --output-dir dist",
+    "backend:start": "supabase start",
+    "backend:stop": "supabase stop",
+    "backend:reset": "supabase db reset",
+    "test:backend:db": "supabase test db",
+    "test:backend:live": "node tests/backend/live-postgres.mjs"
   },
   "private": true
 }

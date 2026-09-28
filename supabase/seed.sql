@@ -1,0 +1,2 @@
+-- Phase 6B intentionally seeds no application/user data.
+-- Integration tests create isolated test users/data and clean them up themselves.

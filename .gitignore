@@ -39,3 +39,10 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Phase 6B environment/secrets
+.env
+.env.*
+!.env.example
+supabase/.branches/
+supabase/.temp/
