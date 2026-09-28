@@ -1,3 +1,7 @@
+# Historical Phase 1 workstream briefs
+
+> Preserved for provenance. A, B, and C were completed from the baseline below and integrated in separate Phase 2 commits; this file is no longer a current status report.
+
 # Ownership and Phase 1 workstream handoff
 
 **Baseline:** use the Git commit SHA reported with the Phase 1A handoff. All three workstreams checkout the same SHA. The ZIP containing this repository is a transport copy, not a separate version of the spec. No workstream has been launched by the scaffold.
