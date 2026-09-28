@@ -65,6 +65,12 @@ function jpegBytes(): Uint8Array {
   return Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x00, 0xff, 0xd9]);
 }
 
+function webpBytes(): Uint8Array {
+  const bytes = new Uint8Array(20);
+  bytes.set([0x52, 0x49, 0x46, 0x46, 12, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x20]);
+  return bytes;
+}
+
 describe('PersistentImageStore content validation', () => {
   beforeEach(() => memory.files.clear());
 
@@ -91,6 +97,17 @@ describe('PersistentImageStore content validation', () => {
     if (!result.ok) throw new Error('expected accepted image');
     expect(result.value).toMatch(/^images\/.+\.png$/);
     expect(decode).toHaveBeenCalledTimes(2); // source and copied app-owned file
+  });
+
+  it('accepts a decodable WebP and chooses its extension from actual bytes', async () => {
+    const uri = 'content://provider/photo/webp';
+    memory.files.set(uri, { bytes: webpBytes() });
+    const store = new PersistentImageStore(async () => ({ width: 48, height: 48 }));
+
+    const result = await store.copySelected({ temporaryUri: uri, mimeType: 'image/webp' });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected accepted WebP');
+    expect(result.value).toMatch(/^images\/.+\.webp$/);
   });
 
   it('uses actual bytes and rejects a supported MIME label that does not match the file contents', async () => {
