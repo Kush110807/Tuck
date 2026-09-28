@@ -1430,6 +1430,12 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON private.account_sync_heads, private.enti
 GRANT SELECT ON auth.users, storage.objects TO tuck_rpc_owner;
 GRANT CREATE ON SCHEMA public, private TO tuck_rpc_owner;
 
+-- Local Supabase applies project migrations as the demoted `postgres` role.
+-- PostgreSQL requires the current owner-transfer executor to be a member of the
+-- target owner role. Grant that membership only for migration finalization; it
+-- is revoked below after ownership, ACLs and comments are complete.
+GRANT tuck_rpc_owner TO postgres;
+
 ALTER FUNCTION public.tuck_push_mutations(jsonb) OWNER TO tuck_rpc_owner;
 ALTER FUNCTION public.tuck_pull_changes(jsonb) OWNER TO tuck_rpc_owner;
 ALTER FUNCTION public.tuck_bootstrap(jsonb) OWNER TO tuck_rpc_owner;
@@ -1461,3 +1467,6 @@ COMMENT ON FUNCTION public.tuck_push_mutations(jsonb) IS
 'Protocol-v1 push. Valid first-seen mutations serialize per account through private.account_sync_heads and store lifetime idempotency results.';
 COMMENT ON FUNCTION public.tuck_pull_changes(jsonb) IS
 'Protocol-v1 bounded pull over retained immutable per-account sync_changes.';
+
+-- Do not leave the migration executor able to SET ROLE to the BYPASSRLS owner.
+REVOKE tuck_rpc_owner FROM postgres;

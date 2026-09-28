@@ -37,6 +37,19 @@ describe('Phase 6B repository/source invariants', () => {
     expect(migration).toContain('CREATE ROLE tuck_rpc_owner NOLOGIN NOINHERIT BYPASSRLS');
     expect(migration).toContain('REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA private FROM PUBLIC, anon, authenticated');
     expect(migration).toContain('GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA private TO tuck_rpc_owner');
+    const membershipGrant = migration.indexOf('GRANT tuck_rpc_owner TO postgres;');
+    const firstOwnerTransfer = migration.indexOf('ALTER FUNCTION public.tuck_push_mutations(jsonb) OWNER TO tuck_rpc_owner;');
+    const lastOwnerTransfer = migration.indexOf('ALTER FUNCTION private.initialize_tuck_account() OWNER TO tuck_rpc_owner;');
+    const finalExecuteGrant = migration.indexOf('GRANT EXECUTE ON FUNCTION public.tuck_finalize_asset(text,text) TO authenticated;');
+    const finalComment = migration.indexOf("'Protocol-v1 bounded pull over retained immutable per-account sync_changes.';");
+    const membershipRevoke = migration.indexOf('REVOKE tuck_rpc_owner FROM postgres;');
+    expect(membershipGrant).toBeGreaterThan(-1);
+    expect(membershipGrant).toBeLessThan(firstOwnerTransfer);
+    expect(membershipRevoke).toBeGreaterThan(lastOwnerTransfer);
+    expect(membershipRevoke).toBeGreaterThan(finalExecuteGrant);
+    expect(membershipRevoke).toBeGreaterThan(finalComment);
+    expect(migration.match(/GRANT tuck_rpc_owner TO postgres;/g)).toHaveLength(1);
+    expect(migration.match(/REVOKE tuck_rpc_owner FROM postgres;/g)).toHaveLength(1);
   });
 
   it('keeps tombstones/idempotency account-lifetime and storage private', () => {

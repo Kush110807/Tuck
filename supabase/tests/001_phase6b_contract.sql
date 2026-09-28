@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(21);
+select plan(34);
 
 select has_table('public', 'accounts', 'accounts exists');
 select has_table('private', 'account_sync_heads', 'per-account head exists');
@@ -32,6 +32,155 @@ select ok(exists (
     and with_check like '%auth.uid()%'
 ), 'Storage insert policy is tied to authenticated user prefix');
 select has_column('public', 'accounts', 'change_retention_floor_seq', 'retention floor is explicit');
+
+-- P6B-02: the hardened definer role is deliberately non-login and has no
+-- residual members after migration finalization.
+select ok(exists (
+  select 1 from pg_roles
+  where rolname='tuck_rpc_owner'
+    and not rolcanlogin
+    and not rolinherit
+    and rolbypassrls
+    and not rolsuper
+    and not rolcreatedb
+    and not rolcreaterole
+    and not rolreplication
+), 'tuck_rpc_owner keeps exact hardened non-login attributes');
+
+select ok(not exists (
+  select 1 from pg_auth_members m
+  join pg_roles r on r.oid=m.roleid
+  where r.rolname='tuck_rpc_owner'
+), 'tuck_rpc_owner has no residual role members');
+
+select ok(not exists (
+  select 1 from pg_roles
+  where rolname in ('anon','authenticated') and rolbypassrls
+), 'client roles do not receive BYPASSRLS');
+
+select is((
+  select count(*)::integer
+  from (values
+    ('public.tuck_push_mutations(jsonb)'),
+    ('public.tuck_pull_changes(jsonb)'),
+    ('public.tuck_bootstrap(jsonb)'),
+    ('public.tuck_request_account_deletion()'),
+    ('public.tuck_create_asset_staging(text,text,bigint)'),
+    ('public.tuck_finalize_asset(text,text)'),
+    ('private.initialize_tuck_account()')
+  ) expected(signature)
+  where to_regprocedure(expected.signature) is not null
+), 7, 'all seven hardened SECURITY DEFINER functions exist');
+
+select ok(not exists (
+  select 1
+  from (values
+    ('public.tuck_push_mutations(jsonb)'),
+    ('public.tuck_pull_changes(jsonb)'),
+    ('public.tuck_bootstrap(jsonb)'),
+    ('public.tuck_request_account_deletion()'),
+    ('public.tuck_create_asset_staging(text,text,bigint)'),
+    ('public.tuck_finalize_asset(text,text)'),
+    ('private.initialize_tuck_account()')
+  ) expected(signature)
+  join pg_proc p on p.oid=to_regprocedure(expected.signature)
+  where pg_get_userbyid(p.proowner) <> 'tuck_rpc_owner'
+), 'every hardened function is owned by tuck_rpc_owner');
+
+select ok(not exists (
+  select 1
+  from (values
+    ('public.tuck_push_mutations(jsonb)'),
+    ('public.tuck_pull_changes(jsonb)'),
+    ('public.tuck_bootstrap(jsonb)'),
+    ('public.tuck_request_account_deletion()'),
+    ('public.tuck_create_asset_staging(text,text,bigint)'),
+    ('public.tuck_finalize_asset(text,text)'),
+    ('private.initialize_tuck_account()')
+  ) expected(signature)
+  join pg_proc p on p.oid=to_regprocedure(expected.signature)
+  where not p.prosecdef
+), 'every hardened function remains SECURITY DEFINER');
+
+select ok(not exists (
+  select 1
+  from (values
+    ('public.tuck_push_mutations(jsonb)', 'search_path=pg_catalog, public, private'),
+    ('public.tuck_pull_changes(jsonb)', 'search_path=pg_catalog, public, private'),
+    ('public.tuck_bootstrap(jsonb)', 'search_path=pg_catalog, public, private'),
+    ('public.tuck_request_account_deletion()', 'search_path=pg_catalog, public'),
+    ('public.tuck_create_asset_staging(text,text,bigint)', 'search_path=pg_catalog, public, private'),
+    ('public.tuck_finalize_asset(text,text)', 'search_path=pg_catalog, public, private, storage'),
+    ('private.initialize_tuck_account()', 'search_path=pg_catalog, public, private')
+  ) expected(signature, expected_search_path)
+  join pg_proc p on p.oid=to_regprocedure(expected.signature)
+  where coalesce(array_length(p.proconfig,1),0) <> 1
+     or p.proconfig[1] <> expected.expected_search_path
+), 'every hardened function keeps its exact fixed search_path');
+
+select ok(not exists (
+  select 1
+  from (values
+    ('public.tuck_push_mutations(jsonb)'),
+    ('public.tuck_pull_changes(jsonb)'),
+    ('public.tuck_bootstrap(jsonb)'),
+    ('public.tuck_request_account_deletion()'),
+    ('public.tuck_create_asset_staging(text,text,bigint)'),
+    ('public.tuck_finalize_asset(text,text)')
+  ) expected(signature)
+  join pg_proc p on p.oid=to_regprocedure(expected.signature)
+  where pg_get_functiondef(p.oid) not like '%auth.uid()%'
+), 'all public hardened RPCs derive caller identity from auth.uid()');
+
+select ok(not exists (
+  select 1
+  from (values
+    ('public.tuck_push_mutations(jsonb)'),
+    ('public.tuck_pull_changes(jsonb)'),
+    ('public.tuck_bootstrap(jsonb)'),
+    ('public.tuck_request_account_deletion()'),
+    ('public.tuck_create_asset_staging(text,text,bigint)'),
+    ('public.tuck_finalize_asset(text,text)')
+  ) expected(signature)
+  where not has_function_privilege('authenticated', expected.signature, 'EXECUTE')
+), 'authenticated can execute every intended public hardened RPC');
+
+select ok(not exists (
+  select 1
+  from (values
+    ('public.tuck_push_mutations(jsonb)'),
+    ('public.tuck_pull_changes(jsonb)'),
+    ('public.tuck_bootstrap(jsonb)'),
+    ('public.tuck_request_account_deletion()'),
+    ('public.tuck_create_asset_staging(text,text,bigint)'),
+    ('public.tuck_finalize_asset(text,text)')
+  ) expected(signature)
+  where has_function_privilege('anon', expected.signature, 'EXECUTE')
+), 'anon cannot execute any hardened public RPC');
+
+select ok(not exists (
+  select 1
+  from (values
+    ('public.tuck_push_mutations(jsonb)'),
+    ('public.tuck_pull_changes(jsonb)'),
+    ('public.tuck_bootstrap(jsonb)'),
+    ('public.tuck_request_account_deletion()'),
+    ('public.tuck_create_asset_staging(text,text,bigint)'),
+    ('public.tuck_finalize_asset(text,text)')
+  ) expected(signature)
+  join pg_proc p on p.oid=to_regprocedure(expected.signature)
+  cross join lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) acl
+  where acl.grantee=0 and acl.privilege_type='EXECUTE'
+), 'PUBLIC execute is revoked from all hardened public RPCs');
+
+select ok(
+  not has_function_privilege('anon', 'private.initialize_tuck_account()', 'EXECUTE')
+  and not has_function_privilege('authenticated', 'private.initialize_tuck_account()', 'EXECUTE'),
+  'client roles cannot execute the private account initializer'
+);
+
+select ok(has_function_privilege('tuck_rpc_owner', 'private.initialize_tuck_account()', 'EXECUTE'),
+  'tuck_rpc_owner can execute private helpers it owns');
 
 select * from finish();
 rollback;
