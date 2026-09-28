@@ -42,6 +42,8 @@ flowchart TD
 
 Native stack headers/gestures are disabled where they could bypass controller guards. Android hardware Back delegates to controller boundaries; pending mutations cannot be raced by a second action or Back exit.
 
+For Android library selection, the ImagePicker adapter launches the system image library directly and does not preflight broad media-library permission. The Expo config disables unused camera/microphone permission injection and blocks legacy `READ_EXTERNAL_STORAGE` / `WRITE_EXTERNAL_STORAGE` permissions for this library-only flow. Built-manifest confirmation remains part of native APK verification.
+
 ## Fatal startup vs recoverable image maintenance
 
 Phase 4 separates metadata initialization from optional file maintenance.
