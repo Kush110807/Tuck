@@ -21,15 +21,13 @@ export function TypeChip({ type, selected, onPress }: TypeChipProps) {
 const styles = StyleSheet.create({
   chip: {
     minHeight: minimumTouchSize,
-    paddingHorizontal: space.lg,
+    paddingHorizontal: space.md,
     borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
+    backgroundColor: 'transparent',
     justifyContent: 'center',
   },
-  selected: { backgroundColor: colors.primary, borderColor: colors.primary },
-  label: { color: colors.text, fontSize: 15, lineHeight: 20, fontWeight: '600' },
-  selectedLabel: { color: colors.surface },
-  pressed: { opacity: 0.72 },
+  selected: { backgroundColor: colors.primarySoft },
+  label: { color: colors.secondaryText, fontSize: 14, lineHeight: 20, fontWeight: '600' },
+  selectedLabel: { color: colors.primary, fontWeight: '800' },
+  pressed: { backgroundColor: colors.surfaceMuted },
 });

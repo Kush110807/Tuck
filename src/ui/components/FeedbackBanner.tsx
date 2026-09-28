@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { FeedbackBannerProps } from '../../contracts';
 import { colors, minimumTouchSize, radii, space } from '../../theme/tokens';
+import { AppIcon } from './AppIcon';
 
 export function FeedbackBanner({ feedback, onDismiss }: FeedbackBannerProps) {
   const isError = feedback.kind === 'error';
@@ -10,6 +11,11 @@ export function FeedbackBanner({ feedback, onDismiss }: FeedbackBannerProps) {
       accessibilityRole={isError ? 'alert' : undefined}
       style={[styles.banner, isError && styles.errorBanner]}
     >
+      <AppIcon
+        name={isError ? 'alert' : feedback.kind === 'success' ? 'success' : 'info'}
+        size={20}
+        color={isError ? colors.error : colors.primary}
+      />
       <Text style={[styles.message, isError && styles.errorText]}>{feedback.message}</Text>
       <Pressable
         accessibilityRole="button"
@@ -17,7 +23,7 @@ export function FeedbackBanner({ feedback, onDismiss }: FeedbackBannerProps) {
         onPress={onDismiss}
         style={({ pressed }) => [styles.dismiss, pressed && styles.pressed]}
       >
-        <Text style={[styles.dismissText, isError && styles.errorText]}>Dismiss</Text>
+        <AppIcon name="close" size={19} color={isError ? colors.error : colors.secondaryText} />
       </Pressable>
     </View>
   );
@@ -25,25 +31,16 @@ export function FeedbackBanner({ feedback, onDismiss }: FeedbackBannerProps) {
 
 const styles = StyleSheet.create({
   banner: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.primarySoft,
     borderRadius: radii.control,
     paddingLeft: space.md,
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
   },
-  errorBanner: { borderColor: colors.error },
-  message: { flex: 1, color: colors.text, fontSize: 15, lineHeight: 22, paddingVertical: space.md },
+  errorBanner: { backgroundColor: colors.errorSoft },
+  message: { flex: 1, color: colors.text, fontSize: 14, lineHeight: 21, paddingVertical: space.md },
   errorText: { color: colors.error },
-  dismiss: {
-    minHeight: minimumTouchSize,
-    minWidth: minimumTouchSize,
-    paddingHorizontal: space.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  dismissText: { color: colors.primary, fontSize: 15, lineHeight: 20, fontWeight: '700' },
-  pressed: { opacity: 0.65 },
+  dismiss: { minHeight: minimumTouchSize, minWidth: minimumTouchSize, alignItems: 'center', justifyContent: 'center' },
+  pressed: { opacity: 0.6 },
 });

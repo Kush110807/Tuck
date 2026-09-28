@@ -1,14 +1,18 @@
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 import type { SearchFieldProps } from '../../contracts';
 import { colors, minimumTouchSize, radii, space } from '../../theme/tokens';
+import { AppIcon } from './AppIcon';
 
 export function SearchField({ value, onChangeText, onClear }: SearchFieldProps) {
   return (
     <View style={styles.container}>
+      <View style={styles.searchIcon} importantForAccessibility="no-hide-descendants">
+        <AppIcon name="search" size={20} color={colors.secondaryText} />
+      </View>
       <TextInput
         accessibilityLabel="Search saved items"
-        placeholder="Search title, content, URL or tag"
-        placeholderTextColor={colors.secondaryText}
+        placeholder="Search your Tuck"
+        placeholderTextColor={colors.tertiaryText}
         value={value}
         onChangeText={onChangeText}
         autoCorrect={false}
@@ -22,7 +26,7 @@ export function SearchField({ value, onChangeText, onClear }: SearchFieldProps) 
           onPress={onClear}
           style={({ pressed }) => [styles.clear, pressed && styles.pressed]}
         >
-          <Text style={styles.clearText}>×</Text>
+          <AppIcon name="close" size={21} color={colors.secondaryText} />
         </Pressable>
       ) : null}
     </View>
@@ -31,24 +35,24 @@ export function SearchField({ value, onChangeText, onClear }: SearchFieldProps) 
 
 const styles = StyleSheet.create({
   container: {
-    minHeight: minimumTouchSize,
-    borderWidth: 1,
-    borderColor: colors.border,
+    minHeight: 50,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.divider,
     borderRadius: radii.control,
     backgroundColor: colors.surface,
     flexDirection: 'row',
     alignItems: 'center',
   },
+  searchIcon: { width: 42, minHeight: minimumTouchSize, alignItems: 'flex-end', justifyContent: 'center' },
   input: {
     flex: 1,
     minHeight: minimumTouchSize,
     color: colors.text,
     fontSize: 16,
     lineHeight: 22,
-    paddingHorizontal: space.md,
+    paddingHorizontal: space.sm,
     paddingVertical: space.sm,
   },
   clear: { minWidth: minimumTouchSize, minHeight: minimumTouchSize, alignItems: 'center', justifyContent: 'center' },
-  clearText: { color: colors.secondaryText, fontSize: 24, lineHeight: 26 },
-  pressed: { opacity: 0.62 },
+  pressed: { opacity: 0.58 },
 });

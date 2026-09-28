@@ -1,10 +1,12 @@
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { EditorScreenProps } from '../../contracts';
 import { colors, radii, space } from '../../theme/tokens';
 import { ActionButton } from '../components/ActionButton';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { FormField } from '../components/FormField';
+import { IconButton } from '../components/IconButton';
 import { ImagePickerField } from '../components/ImagePickerField';
+import { ScreenHeader } from '../components/ScreenHeader';
 import { ErrorPanel, InlineError, LoadingPanel } from '../components/ScreenStates';
 import { TagEditor } from '../components/TagEditor';
 
@@ -14,11 +16,7 @@ export function EditorScreen(props: EditorScreenProps) {
   const { state, mode, onRetry, onBackToInbox } = props;
 
   if (state.kind === 'loading') {
-    return (
-      <View style={styles.centerScreen}>
-        <LoadingPanel label="Loading item…" />
-      </View>
-    );
+    return <View style={styles.centerScreen}><LoadingPanel label="Loading item…" /></View>;
   }
 
   if (state.kind === 'missing') {
@@ -50,89 +48,67 @@ export function EditorScreen(props: EditorScreenProps) {
 
   return (
     <>
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.screen} style={styles.scroll}>
-        <View style={styles.header}>
-          <View style={styles.headerCopy}>
-            <Text accessibilityRole="header" style={styles.title}>{title}</Text>
-            <Text style={styles.subtitle}>{isDirty ? 'Unsaved changes' : mode === 'create' ? 'Add the details below.' : 'No unsaved changes.'}</Text>
-          </View>
-          <ActionButton label="Cancel" onPress={props.onCancel} variant="secondary" disabled={pending} />
-        </View>
-
-        {screenError ? <InlineError message={screenError.message} /> : null}
-        {mutation.kind === 'failed' ? <InlineError message={mutation.error.message} /> : null}
-        {pending ? (
-          <View style={styles.pending} accessibilityLiveRegion="polite">
-            <Text style={styles.pendingText}>Saving your changes. Please keep this screen open.</Text>
-          </View>
-        ) : null}
-
-        <View style={styles.form}>
-          <FormField
-            label="Title"
-            value={draft.title}
-            onChangeText={props.onTitleChange}
-            error={fieldErrors.title}
-            maxLength={120}
+      <KeyboardAvoidingView style={styles.keyboardAvoider} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <ScrollView
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={styles.screen}
+          style={styles.scroll}
+        >
+          <ScreenHeader
+            title={title}
+            size="compact"
+            subtitle={isDirty ? 'Unsaved changes' : mode === 'create' ? 'Add the details below.' : 'Everything is saved.'}
+            leading={<IconButton icon="close" label="Cancel editing" onPress={props.onCancel} disabled={pending} />}
           />
 
-          {draft.type === 'note' ? (
-            <FormField
-              label="Note"
-              value={draft.body}
-              onChangeText={props.onBodyChange}
-              error={fieldErrors.body}
-              multiline
-              maxLength={10000}
+          {screenError ? <InlineError message={screenError.message} /> : null}
+          {mutation.kind === 'failed' ? <InlineError message={mutation.error.message} /> : null}
+          {pending ? (
+            <View style={styles.pending} accessibilityLiveRegion="polite">
+              <Text style={styles.pendingText}>Saving your changes. Please keep this screen open.</Text>
+            </View>
+          ) : null}
+
+          <View style={styles.form}>
+            <FormField label="Title" value={draft.title} onChangeText={props.onTitleChange} error={fieldErrors.title} maxLength={120} />
+
+            {draft.type === 'note' ? (
+              <FormField label="Note" value={draft.body} onChangeText={props.onBodyChange} error={fieldErrors.body} multiline maxLength={10000} />
+            ) : null}
+
+            {draft.type === 'link' ? (
+              <FormField label="URL" value={draft.url} onChangeText={props.onUrlChange} error={fieldErrors.url} maxLength={2000} />
+            ) : null}
+
+            {draft.type === 'image' ? (
+              <>
+                <ImagePickerField
+                  image={imagePreview}
+                  error={fieldErrors.image}
+                  disabled={pending}
+                  onPick={props.onPickImage}
+                  onRetry={props.onRetryImage}
+                />
+                <FormField label="Caption" value={draft.caption} onChangeText={props.onCaptionChange} error={fieldErrors.caption} multiline maxLength={10000} />
+              </>
+            ) : null}
+
+            <TagEditor
+              tags={draft.tags}
+              entry={draft.tagEntry}
+              error={fieldErrors.tags}
+              disabled={pending}
+              onEntryChange={props.onTagEntryChange}
+              onAdd={props.onAddTag}
+              onRemove={props.onRemoveTag}
             />
-          ) : null}
+          </View>
+        </ScrollView>
 
-          {draft.type === 'link' ? (
-            <FormField
-              label="URL"
-              value={draft.url}
-              onChangeText={props.onUrlChange}
-              error={fieldErrors.url}
-              maxLength={2000}
-            />
-          ) : null}
-
-          {draft.type === 'image' ? (
-            <>
-              <ImagePickerField
-                image={imagePreview}
-                error={fieldErrors.image}
-                disabled={pending}
-                onPick={props.onPickImage}
-                onRetry={props.onRetryImage}
-              />
-              <FormField
-                label="Caption"
-                value={draft.caption}
-                onChangeText={props.onCaptionChange}
-                error={fieldErrors.caption}
-                multiline
-                maxLength={10000}
-              />
-            </>
-          ) : null}
-
-          <TagEditor
-            tags={draft.tags}
-            entry={draft.tagEntry}
-            error={fieldErrors.tags}
-            disabled={pending}
-            onEntryChange={props.onTagEntryChange}
-            onAdd={props.onAddTag}
-            onRemove={props.onRemoveTag}
-          />
+        <View style={styles.saveBar}>
+          <ActionButton label={saveLabel} onPress={props.onSave} disabled={pending} style={styles.saveButton} />
         </View>
-
-        <View style={styles.footer}>
-          <ActionButton label="Cancel" onPress={props.onCancel} variant="secondary" disabled={pending} style={styles.footerButton} />
-          <ActionButton label={saveLabel} onPress={props.onSave} disabled={pending} style={styles.footerButton} />
-        </View>
-      </ScrollView>
+      </KeyboardAvoidingView>
 
       <ConfirmDialog
         visible={discardConfirmationOpen}
@@ -157,18 +133,22 @@ export function EditorScreen(props: EditorScreenProps) {
 }
 
 const styles = StyleSheet.create({
+  keyboardAvoider: { flex: 1, backgroundColor: colors.background },
   scroll: { flex: 1, backgroundColor: colors.background },
-  screen: { flexGrow: 1, padding: space.lg, gap: space.lg },
+  screen: { flexGrow: 1, paddingHorizontal: space.lg, paddingTop: space.md, paddingBottom: space.xl, gap: space.lg },
   centerScreen: { flex: 1, backgroundColor: colors.background, padding: space.xl, justifyContent: 'center', gap: space.lg },
   stateTitle: { color: colors.text, fontSize: 24, lineHeight: 32, fontWeight: '800', textAlign: 'center' },
   stateMessage: { color: colors.secondaryText, fontSize: 16, lineHeight: 24, textAlign: 'center' },
-  header: { flexDirection: 'row', flexWrap: 'wrap', gap: space.md, alignItems: 'flex-start', justifyContent: 'space-between' },
-  headerCopy: { flexGrow: 1, flexShrink: 1, flexBasis: 220, gap: space.xs },
-  title: { color: colors.text, fontSize: 30, lineHeight: 38, fontWeight: '800' },
-  subtitle: { color: colors.secondaryText, fontSize: 15, lineHeight: 22 },
-  pending: { borderWidth: 1, borderColor: colors.border, borderRadius: radii.control, backgroundColor: colors.surface, padding: space.md },
-  pendingText: { color: colors.secondaryText, fontSize: 14, lineHeight: 21 },
-  form: { gap: space.lg },
-  footer: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, paddingTop: space.sm },
-  footerButton: { flexGrow: 1 },
+  pending: { borderRadius: radii.control, backgroundColor: colors.primarySoft, padding: space.md },
+  pendingText: { color: colors.primary, fontSize: 14, lineHeight: 21, fontWeight: '600' },
+  form: { gap: space.xl },
+  saveBar: {
+    backgroundColor: colors.background,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.divider,
+    paddingHorizontal: space.lg,
+    paddingTop: space.md,
+    paddingBottom: space.md,
+  },
+  saveButton: { width: '100%' },
 });

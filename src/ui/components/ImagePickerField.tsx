@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, StyleSheet, Text, View } from 'react-native';
 import type { ImagePickerFieldProps } from '../../contracts';
-import { colors, minimumTouchSize, radii, space } from '../../theme/tokens';
+import { colors, radii, space } from '../../theme/tokens';
+import { ActionButton } from './ActionButton';
+import { AppIcon } from './AppIcon';
 import { getImagePresentation } from './imagePresentation';
 
 export function ImagePickerField({ image, error, disabled, onPick, onRetry }: ImagePickerFieldProps) {
@@ -26,66 +28,40 @@ export function ImagePickerField({ image, error, disabled, onPick, onRetry }: Im
           />
         ) : (
           <View style={styles.placeholder}>
+            <View style={styles.iconWrap} importantForAccessibility="no-hide-descendants">
+              <AppIcon name="image" size={25} color={colors.primary} />
+            </View>
             <Text style={styles.placeholderTitle}>{presentation.title}</Text>
             <Text style={styles.placeholderMessage}>{presentation.message}</Text>
           </View>
         )}
       </View>
       {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-      {retry ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Retry image preview"
-          accessibilityState={{ disabled }}
+      <View style={styles.actions}>
+        {retry ? <ActionButton label="Retry image" onPress={retry} variant="secondary" disabled={disabled} style={styles.action} /> : null}
+        <ActionButton
+          label={image.kind === 'none' ? 'Choose image' : 'Replace image'}
+          onPress={onPick}
+          variant="secondary"
           disabled={disabled}
-          onPress={retry}
-          style={({ pressed }) => [styles.button, disabled && styles.disabled, pressed && !disabled && styles.pressed]}
-        >
-          <Text style={styles.buttonText}>Retry image</Text>
-        </Pressable>
-      ) : null}
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={image.kind === 'none' ? 'Choose image' : 'Replace image'}
-        accessibilityState={{ disabled }}
-        disabled={disabled}
-        onPress={onPick}
-        style={({ pressed }) => [styles.button, disabled && styles.disabled, pressed && !disabled && styles.pressed]}
-      >
-        <Text style={styles.buttonText}>{image.kind === 'none' ? 'Choose image' : 'Replace image'}</Text>
-      </Pressable>
+          style={styles.action}
+        />
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { gap: space.sm },
-  label: { color: colors.text, fontSize: 15, lineHeight: 21, fontWeight: '700' },
-  preview: {
-    minHeight: 180,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.card,
-    overflow: 'hidden',
-    backgroundColor: colors.surface,
-  },
-  previewError: { borderColor: colors.error },
-  image: { width: '100%', minHeight: 220, backgroundColor: colors.background },
+  label: { color: colors.text, fontSize: 14, lineHeight: 20, fontWeight: '700' },
+  preview: { minHeight: 180, borderRadius: radii.card, overflow: 'hidden', backgroundColor: colors.surfaceMuted },
+  previewError: { borderWidth: 1, borderColor: colors.error },
+  image: { width: '100%', minHeight: 230, backgroundColor: colors.surfaceMuted },
   placeholder: { minHeight: 180, padding: space.xl, alignItems: 'center', justifyContent: 'center', gap: space.sm },
+  iconWrap: { width: 48, height: 48, borderRadius: 24, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
   placeholderTitle: { color: colors.text, fontSize: 17, lineHeight: 24, fontWeight: '700', textAlign: 'center' },
-  placeholderMessage: { color: colors.secondaryText, fontSize: 15, lineHeight: 22, textAlign: 'center' },
-  error: { color: colors.error, fontSize: 14, lineHeight: 20 },
-  button: {
-    minHeight: minimumTouchSize,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    borderRadius: radii.control,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: space.lg,
-  },
-  buttonText: { color: colors.primary, fontSize: 16, lineHeight: 22, fontWeight: '700' },
-  disabled: { opacity: 0.5 },
-  pressed: { opacity: 0.7 },
+  placeholderMessage: { color: colors.secondaryText, fontSize: 14, lineHeight: 21, textAlign: 'center' },
+  error: { color: colors.error, fontSize: 13, lineHeight: 19 },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
+  action: { flexGrow: 1 },
 });

@@ -2,11 +2,11 @@ import type { ReactNode } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { Feedback, ItemQuery, ListState } from '../../contracts';
 import { colors, space } from '../../theme/tokens';
-import { ActionButton } from '../components/ActionButton';
 import { EmptyState } from '../components/EmptyState';
 import { FeedbackBanner } from '../components/FeedbackBanner';
 import { FilterBar } from '../components/FilterBar';
 import { ItemCard } from '../components/ItemCard';
+import { ScreenHeader } from '../components/ScreenHeader';
 import { SearchField } from '../components/SearchField';
 import { ErrorPanel, LoadingPanel } from '../components/ScreenStates';
 
@@ -21,8 +21,9 @@ type ListScreenViewProps = {
   onOpen(id: string): void;
   onRetry(): void;
   onDismissFeedback(): void;
-  headerActions: ReactNode;
-  emptyAction?: ReactNode;
+  headerActions?: ReactNode;
+  headerLeading?: ReactNode;
+  contentBottomInset?: number;
 };
 
 function queryHasFilters(query: ItemQuery) {
@@ -56,7 +57,8 @@ export function ListScreenView({
   onRetry,
   onDismissFeedback,
   headerActions,
-  emptyAction,
+  headerLeading,
+  contentBottomInset = space.xxl,
 }: ListScreenViewProps) {
   const query = state.query;
   const rows = state.kind === 'ready' ? state.rows : state.previousRows;
@@ -66,48 +68,48 @@ export function ListScreenView({
   return (
     <ScrollView
       keyboardShouldPersistTaps="handled"
-      contentContainerStyle={styles.screen}
+      contentContainerStyle={[styles.screen, { paddingBottom: contentBottomInset }]}
       style={styles.scroll}
     >
-      <View style={styles.header}>
-        <View style={styles.headerCopy}>
-          <Text accessibilityRole="header" style={styles.title}>{title}</Text>
-          <Text style={styles.subtitle}>{subtitle}</Text>
-        </View>
-        <View style={styles.headerActions}>{headerActions}</View>
-      </View>
+      <ScreenHeader title={title} subtitle={subtitle} leading={headerLeading} trailing={headerActions} />
 
       {feedback ? <FeedbackBanner feedback={feedback} onDismiss={onDismissFeedback} /> : null}
 
-      <SearchField
-        value={query.text}
-        onChangeText={text => onQueryChange({ ...query, text })}
-        onClear={() => onQueryChange({ ...query, text: '' })}
-      />
-      <FilterBar
-        type={query.type}
-        tagKey={query.tagKey}
-        availableTags={availableTags}
-        onTypeChange={type => onQueryChange({ ...query, type })}
-        onTagChange={tagKey => onQueryChange({ ...query, tagKey })}
-      />
+      <View style={styles.discovery}>
+        <SearchField
+          value={query.text}
+          onChangeText={text => onQueryChange({ ...query, text })}
+          onClear={() => onQueryChange({ ...query, text: '' })}
+        />
+        <FilterBar
+          type={query.type}
+          tagKey={query.tagKey}
+          availableTags={availableTags}
+          onTypeChange={type => onQueryChange({ ...query, type })}
+          onTagChange={tagKey => onQueryChange({ ...query, tagKey })}
+        />
+      </View>
 
-      {state.kind === 'loading' ? <LoadingPanel label={rows.length > 0 ? 'Refreshing items…' : 'Loading items…'} /> : null}
-      {state.kind === 'failed' ? <ErrorPanel title="Couldn’t load items" error={state.error} onRetry={onRetry} /> : null}
+      {rows.length > 0 ? (
+        <Text style={styles.count} accessibilityLiveRegion="polite">
+          {rows.length} item{rows.length === 1 ? '' : 's'}
+          {state.kind === 'loading' ? ' · refreshing' : ''}
+        </Text>
+      ) : null}
+
+      {state.kind === 'loading' ? <LoadingPanel label={rows.length > 0 ? 'Refreshing items…' : 'Loading items…'} compact={rows.length > 0} /> : null}
+      {state.kind === 'failed' ? <ErrorPanel title="Couldn’t load items" error={state.error} onRetry={onRetry} compact={rows.length > 0} /> : null}
 
       {state.kind === 'ready' && rows.length === 0 ? (
         filtered ? (
           <EmptyState
             title="No matches"
-            message="Try a different search, item type, or tag."
+            message="Try another search or clear your active filters."
             actionLabel="Clear filters"
             onAction={() => onQueryChange({ ...query, text: '', type: 'all', tagKey: null })}
           />
         ) : (
-          <View style={styles.emptyWrap}>
-            <EmptyState title={emptyTitle} message={emptyMessage} />
-            {emptyAction}
-          </View>
+          <EmptyState title={emptyTitle} message={emptyMessage} />
         )
       ) : null}
 
@@ -120,22 +122,10 @@ export function ListScreenView({
   );
 }
 
-export function HeaderButton({ label, onPress, variant = 'secondary' }: {
-  label: string;
-  onPress(): void;
-  variant?: 'primary' | 'secondary' | 'text';
-}) {
-  return <ActionButton label={label} onPress={onPress} variant={variant} />;
-}
-
 const styles = StyleSheet.create({
   scroll: { flex: 1, backgroundColor: colors.background },
-  screen: { flexGrow: 1, padding: space.lg, gap: space.lg },
-  header: { flexDirection: 'row', flexWrap: 'wrap', gap: space.md, alignItems: 'flex-start', justifyContent: 'space-between' },
-  headerCopy: { flexGrow: 1, flexShrink: 1, flexBasis: 220, gap: space.xs },
-  title: { color: colors.text, fontSize: 30, lineHeight: 38, fontWeight: '800' },
-  subtitle: { color: colors.secondaryText, fontSize: 16, lineHeight: 24 },
-  headerActions: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, alignItems: 'center' },
-  list: { gap: space.md },
-  emptyWrap: { gap: space.md },
+  screen: { flexGrow: 1, paddingHorizontal: space.lg, paddingTop: space.md, gap: space.lg },
+  discovery: { gap: space.sm },
+  count: { color: colors.tertiaryText, fontSize: 12, lineHeight: 18, fontWeight: '700', paddingHorizontal: 2 },
+  list: { gap: space.sm },
 });

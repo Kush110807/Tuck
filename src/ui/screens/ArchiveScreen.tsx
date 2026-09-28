@@ -1,5 +1,6 @@
 import type { ArchiveScreenProps } from '../../contracts';
-import { HeaderButton, ListScreenView } from './ListScreenView';
+import { IconButton } from '../components/IconButton';
+import { ListScreenView } from './ListScreenView';
 
 export function ArchiveScreen({
   state,
@@ -22,7 +23,7 @@ export function ArchiveScreen({
       onOpen={onOpen}
       onRetry={onRetry}
       onDismissFeedback={onDismissFeedback}
-      headerActions={<HeaderButton label="Back" onPress={onBack} />}
+      headerLeading={<IconButton icon="back" label="Back" onPress={onBack} />}
     />
   );
 }

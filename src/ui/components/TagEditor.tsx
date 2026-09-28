@@ -22,18 +22,23 @@ export function TagEditor({
 }) {
   return (
     <View style={styles.container}>
-      <Text style={styles.label}>Tags</Text>
+      <View style={styles.headingRow}>
+        <Text style={styles.label}>Tags</Text>
+        <Text style={styles.helper}>Optional · up to 8</Text>
+      </View>
       {tags.length > 0 ? (
         <View style={styles.tags}>
           {tags.map(tag => (
             <TagChip key={tag.toLowerCase()} label={tag} onRemove={disabled ? undefined : () => onRemove(tag.toLowerCase())} />
           ))}
         </View>
-      ) : <Text style={styles.helper}>No tags added.</Text>}
+      ) : null}
       <View style={styles.entryRow}>
         <TextInput
           accessibilityLabel="New tag"
           accessibilityHint="Enter a tag, then use Add tag"
+          placeholder="Add a tag"
+          placeholderTextColor={colors.tertiaryText}
           value={entry}
           onChangeText={onEntryChange}
           editable={!disabled}
@@ -42,25 +47,26 @@ export function TagEditor({
           onSubmitEditing={onAdd}
           style={[styles.input, error && styles.inputError]}
         />
-        <ActionButton label="Add tag" onPress={onAdd} variant="secondary" disabled={disabled} />
+        <ActionButton label="Add" accessibilityLabel="Add tag" onPress={onAdd} variant="secondary" disabled={disabled} />
       </View>
       {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-      <Text style={styles.helper}>Up to 8 tags, 24 characters each.</Text>
+      <Text style={styles.helper}>24 characters maximum per tag.</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { gap: space.sm },
-  label: { color: colors.text, fontSize: 15, lineHeight: 21, fontWeight: '700' },
+  headingRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', justifyContent: 'space-between', gap: space.sm },
+  label: { color: colors.text, fontSize: 14, lineHeight: 20, fontWeight: '700' },
   tags: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
   entryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, alignItems: 'stretch' },
   input: {
     flexGrow: 1,
     flexBasis: 180,
     minHeight: minimumTouchSize,
-    borderWidth: 1,
-    borderColor: colors.border,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.divider,
     borderRadius: radii.control,
     backgroundColor: colors.surface,
     color: colors.text,
@@ -70,6 +76,6 @@ const styles = StyleSheet.create({
     paddingVertical: space.sm,
   },
   inputError: { borderColor: colors.error },
-  error: { color: colors.error, fontSize: 14, lineHeight: 20 },
-  helper: { color: colors.secondaryText, fontSize: 13, lineHeight: 19 },
+  error: { color: colors.error, fontSize: 13, lineHeight: 19 },
+  helper: { color: colors.tertiaryText, fontSize: 12, lineHeight: 18 },
 });

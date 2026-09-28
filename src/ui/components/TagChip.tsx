@@ -3,9 +3,7 @@ import type { TagChipProps } from '../../contracts';
 import { colors, minimumTouchSize, radii, space } from '../../theme/tokens';
 
 export function TagChip({ label, selected = false, onPress, onRemove }: TagChipProps) {
-  const content = (
-    <Text style={[styles.label, selected && styles.selectedLabel]}>{label}</Text>
-  );
+  const content = <Text style={[styles.label, selected && styles.selectedLabel]}>{label}</Text>;
 
   return (
     <View style={[styles.chip, selected && styles.selected]}>
@@ -41,19 +39,17 @@ const styles = StyleSheet.create({
     minHeight: minimumTouchSize,
     maxWidth: '100%',
     borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.surfaceMuted,
     flexDirection: 'row',
     alignItems: 'center',
     overflow: 'hidden',
   },
-  selected: { backgroundColor: colors.primary, borderColor: colors.primary },
-  mainPressable: { minWidth: minimumTouchSize, minHeight: minimumTouchSize, justifyContent: 'center', paddingLeft: space.md, paddingRight: space.md },
+  selected: { backgroundColor: colors.primarySoft },
+  mainPressable: { minWidth: minimumTouchSize, minHeight: minimumTouchSize, justifyContent: 'center', paddingHorizontal: space.md },
   mainStatic: { minHeight: minimumTouchSize, justifyContent: 'center', paddingHorizontal: space.md },
-  label: { color: colors.text, fontSize: 14, lineHeight: 20, fontWeight: '600', flexShrink: 1 },
-  selectedLabel: { color: colors.surface },
+  label: { color: colors.secondaryText, fontSize: 13, lineHeight: 19, fontWeight: '600', flexShrink: 1 },
+  selectedLabel: { color: colors.primary },
   remove: { minWidth: minimumTouchSize, minHeight: minimumTouchSize, alignItems: 'center', justifyContent: 'center' },
-  removeText: { color: colors.secondaryText, fontSize: 22, lineHeight: 24 },
-  pressed: { opacity: 0.65 },
+  removeText: { color: colors.secondaryText, fontSize: 21, lineHeight: 23 },
+  pressed: { opacity: 0.62 },
 });

@@ -1,8 +1,12 @@
+import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import type { InboxScreenProps } from '../../contracts';
+import type { InboxScreenProps, ItemType } from '../../contracts';
 import { space } from '../../theme/tokens';
-import { ActionButton } from '../components/ActionButton';
-import { HeaderButton, ListScreenView } from './ListScreenView';
+import { CreateMenuSheet } from '../components/CreateMenuSheet';
+import { FloatingAddButton } from '../components/FloatingAddButton';
+import { IconButton } from '../components/IconButton';
+import { OverflowMenu } from '../components/OverflowMenu';
+import { ListScreenView } from './ListScreenView';
 
 export function InboxScreen({
   state,
@@ -14,35 +18,48 @@ export function InboxScreen({
   onRetry,
   onDismissFeedback,
 }: InboxScreenProps) {
+  const [createOpen, setCreateOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  const chooseCreateType = (type: ItemType) => {
+    setCreateOpen(false);
+    onAdd(type);
+  };
+
   return (
-    <ListScreenView
-      title="Inbox"
-      subtitle="Notes, links and images you want to keep close."
-      state={state}
-      feedback={feedback}
-      emptyTitle="Your inbox is empty"
-      emptyMessage="Save a note, link or image to start building your collection."
-      onQueryChange={onQueryChange}
-      onOpen={onOpen}
-      onRetry={onRetry}
-      onDismissFeedback={onDismissFeedback}
-      headerActions={(
-        <View style={styles.headerActions}>
-          <ActionButton label="Add note" onPress={() => onAdd('note')} />
-          <ActionButton label="Add link" onPress={() => onAdd('link')} variant="secondary" />
-          <ActionButton label="Add image" onPress={() => onAdd('image')} variant="secondary" />
-          <HeaderButton label="Archive" onPress={onOpenArchive} />
-        </View>
-      )}
-    />
+    <View style={styles.root}>
+      <ListScreenView
+        title="Tuck"
+        subtitle="Save anything. Find it again."
+        state={state}
+        feedback={feedback}
+        emptyTitle="Nothing tucked yet"
+        emptyMessage="Notes, links and images you save will appear here."
+        onQueryChange={onQueryChange}
+        onOpen={onOpen}
+        onRetry={onRetry}
+        onDismissFeedback={onDismissFeedback}
+        contentBottomInset={space.xxxl + 72}
+        headerActions={<IconButton icon="more" label="Open Inbox menu" onPress={() => setMenuOpen(true)} />}
+      />
+
+      {/* Intentionally outside ListScreenView and every list-state branch: NEW-01 cannot hide creation. */}
+      <FloatingAddButton onPress={() => setCreateOpen(true)} />
+
+      <CreateMenuSheet
+        visible={createOpen}
+        onClose={() => setCreateOpen(false)}
+        onChoose={chooseCreateType}
+      />
+      <OverflowMenu
+        visible={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        items={[{ key: 'archive', label: 'Archive', icon: 'archive', onPress: onOpenArchive }]}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  headerActions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: space.sm,
-    alignItems: 'center',
-  },
+  root: { flex: 1 },
 });

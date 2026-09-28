@@ -12,6 +12,7 @@ export function FormField({ label, value, onChangeText, error, multiline = false
     onChangeText(Array.from(next).slice(0, maxLength).join(''));
   };
   const errorId = error ? `${label.replace(/\s+/g, '-').toLowerCase()}-error` : undefined;
+
   return (
     <View style={styles.container}>
       <Text style={styles.label}>{label}</Text>
@@ -24,29 +25,33 @@ export function FormField({ label, value, onChangeText, error, multiline = false
         textAlignVertical={multiline ? 'top' : 'center'}
         style={[styles.input, multiline && styles.multiline, error && styles.inputError]}
       />
-      {error ? <Text nativeID={errorId} accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-      {maxLength ? <Text style={styles.count}>{characterCount.toLocaleString()} / {maxLength.toLocaleString()}</Text> : null}
+      <View style={styles.supportRow}>
+        {error ? <Text nativeID={errorId} accessibilityRole="alert" style={styles.error}>{error}</Text> : <View style={styles.supportSpacer} />}
+        {maxLength ? <Text style={styles.count}>{characterCount.toLocaleString()} / {maxLength.toLocaleString()}</Text> : null}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { gap: space.xs },
-  label: { color: colors.text, fontSize: 15, lineHeight: 21, fontWeight: '700' },
+  label: { color: colors.text, fontSize: 14, lineHeight: 20, fontWeight: '700' },
   input: {
-    minHeight: minimumTouchSize,
-    borderWidth: 1,
-    borderColor: colors.border,
+    minHeight: 50,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.divider,
     borderRadius: radii.control,
     backgroundColor: colors.surface,
     color: colors.text,
     fontSize: 16,
-    lineHeight: 23,
+    lineHeight: 24,
     paddingHorizontal: space.md,
-    paddingVertical: space.sm,
+    paddingVertical: space.md,
   },
-  multiline: { minHeight: 132 },
+  multiline: { minHeight: Math.max(148, minimumTouchSize) },
   inputError: { borderColor: colors.error },
-  error: { color: colors.error, fontSize: 14, lineHeight: 20 },
-  count: { color: colors.secondaryText, fontSize: 12, lineHeight: 18, textAlign: 'right' },
+  supportRow: { flexDirection: 'row', alignItems: 'flex-start', gap: space.sm },
+  supportSpacer: { flex: 1 },
+  error: { flex: 1, color: colors.error, fontSize: 13, lineHeight: 19 },
+  count: { color: colors.tertiaryText, fontSize: 12, lineHeight: 18, textAlign: 'right' },
 });
