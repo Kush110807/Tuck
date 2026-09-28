@@ -17,7 +17,7 @@ Status vocabulary:
 | A/B/C integrated as separate commits | **PASSED** |
 | Production imports exclude preview/test fixtures | **PASSED** — final source scan before packaging found none |
 | Supplemental strict TypeScript: contracts/domain/core controllers, no source stubs | **PASSED** |
-| Supplemental runtime smoke | **PASSED — 5/5**: trim/normalization, query normalization, explicit conflict overwrite, Unicode tag length, archive cross-list refresh/mailbox |
+| Supplemental runtime smoke: normalization + explicit conflict decision + cross-list revisit freshness | **PASSED** |
 | `npm ci` from lockfile | **BLOCKED** — registry DNS/transport access failed and bounded online install timed out; offline install is `ENOTCACHED` for required tarballs |
 | `npm run typecheck` with installed project dependencies | **BLOCKED** by dependency install |
 | `npm test` including committed C + Phase 2 tests | **BLOCKED** by dependency install |

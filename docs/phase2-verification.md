@@ -28,7 +28,7 @@ Date: 28 September 2026.
 | UI scan for direct persistence/picker/browser/navigation APIs | **PASSED** |
 | Package vs lockfile dependency/devDependency versions | **PASSED** — exact root maps match; no dependency version changed in Phase 2 |
 | Strict platform-neutral TypeScript check of contracts/domain/core controllers with `types: []` | **PASSED** |
-| Supplemental runtime smoke | **PASSED — 5/5**: trim/normalization; query normalization; explicit conflict overwrite; Unicode tag-length consistency; archive cross-list refresh/mailbox |
+| Supplemental runtime smoke: normalization + explicit conflict decision + cross-list revisit freshness | **PASSED** |
 
 The supplemental TypeScript/runtime checks deliberately exclude React Native/Expo-dependent modules. They do not replace the canonical project checks below.
 
