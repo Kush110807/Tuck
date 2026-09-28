@@ -97,15 +97,55 @@ describe('Phase 6B Supabase auth foundation', () => {
     expect(service.sessionGeneration()).toBe(before + 1);
   });
 
-  it('uses global scope for global sign-out', async () => {
+  it('uses local scope for current-device sign-out and accepts 204 No Content', async () => {
     const fetchImpl = vi.fn(async (url: string) => {
-      expect(url).toContain('/auth/v1/logout?scope=global');
-      return new Response('', { status: 204 });
+      expect(url).toContain('/auth/v1/logout?scope=local');
+      return new Response(null, { status: 204 });
     });
     const service = new SupabaseAuthService(CONFIG, new MemoryAuthStorage(), fetchImpl as unknown as typeof fetch, () => 1_000);
     await service.acceptTokenResponse(token());
-    await service.signOutGlobally();
+    const before = service.sessionGeneration();
+    await expect(service.signOutCurrentDevice()).resolves.toBeUndefined();
     expect(service.currentSession()).toBeNull();
+    expect(service.sessionGeneration()).toBe(before + 1);
+  });
+
+  it('uses global scope for global sign-out and accepts 204 No Content', async () => {
+    const fetchImpl = vi.fn(async (url: string) => {
+      expect(url).toContain('/auth/v1/logout?scope=global');
+      return new Response(null, { status: 204 });
+    });
+    const service = new SupabaseAuthService(CONFIG, new MemoryAuthStorage(), fetchImpl as unknown as typeof fetch, () => 1_000);
+    await service.acceptTokenResponse(token());
+    const before = service.sessionGeneration();
+    await expect(service.signOutGlobally()).resolves.toBeUndefined();
+    expect(service.currentSession()).toBeNull();
+    expect(service.sessionGeneration()).toBe(before + 1);
+  });
+
+  it('does not JSON-parse an empty successful sign-out response', async () => {
+    const text = vi.fn(async () => '');
+    const fetchImpl = vi.fn(async () => ({ ok: true, status: 204, text }) as unknown as Response);
+    const service = new SupabaseAuthService(CONFIG, new MemoryAuthStorage(), fetchImpl as unknown as typeof fetch, () => 1_000);
+    await service.acceptTokenResponse(token());
+    const parseSpy = vi.spyOn(JSON, 'parse');
+    try {
+      await expect(service.signOutGlobally()).resolves.toBeUndefined();
+      expect(text).toHaveBeenCalledOnce();
+      expect(parseSpy).not.toHaveBeenCalled();
+    } finally {
+      parseSpy.mockRestore();
+    }
+  });
+
+  it('maps non-2xx sign-out to an auth error while still clearing the local session', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ message: 'revocation rejected' }, 401));
+    const service = new SupabaseAuthService(CONFIG, new MemoryAuthStorage(), fetchImpl as unknown as typeof fetch, () => 1_000);
+    await service.acceptTokenResponse(token());
+    const before = service.sessionGeneration();
+    await expect(service.signOutGlobally()).rejects.toMatchObject({ code: 'AUTH_REJECTED', status: 401 });
+    expect(service.currentSession()).toBeNull();
+    expect(service.sessionGeneration()).toBe(before + 1);
   });
 
   it('exposes the authenticated account-deletion boundary without deleting local data itself', async () => {
