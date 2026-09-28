@@ -26,12 +26,12 @@ export function InboxScreen({
       onOpen={onOpen}
       onRetry={onRetry}
       onDismissFeedback={onDismissFeedback}
-      headerActions={<HeaderButton label="Archive" onPress={onOpenArchive} />}
-      emptyAction={(
-        <View style={styles.addRow}>
+      headerActions={(
+        <View style={styles.headerActions}>
           <ActionButton label="Add note" onPress={() => onAdd('note')} />
           <ActionButton label="Add link" onPress={() => onAdd('link')} variant="secondary" />
           <ActionButton label="Add image" onPress={() => onAdd('image')} variant="secondary" />
+          <HeaderButton label="Archive" onPress={onOpenArchive} />
         </View>
       )}
     />
@@ -39,5 +39,10 @@ export function InboxScreen({
 }
 
 const styles = StyleSheet.create({
-  addRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, justifyContent: 'center' },
+  headerActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: space.sm,
+    alignItems: 'center',
+  },
 });

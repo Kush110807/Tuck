@@ -106,4 +106,43 @@ describe('InboxController', () => {
     if (controller.props.state.kind !== 'ready') throw new Error('expected ready');
     expect(controller.props.state.rows[0]?.item.id).toBe(note.id);
   });
+
+  it('keeps create navigation available after item 1 exists and across type filters', async () => {
+    const repository = new MockItemRepository();
+    repository.listImpl = async query => {
+      if (query.type === 'image') return { ok: true, value: [] };
+      return { ok: true, value: [note] };
+    };
+    const navigation = new MockNavigation();
+    const controller = createInboxController(repository, new MockImageStore(), new MockMailbox(), navigation);
+
+    // Empty/initial state: creation is available before the first list response.
+    controller.props.onAdd('note');
+    expect(navigation.calls.at(-1)).toEqual({
+      name: 'openEditor',
+      args: [{ mode: 'create', type: 'note', origin: 'Inbox' }],
+    });
+
+    // Item 1 is now present: creation of item 2 must remain available.
+    await controller.refresh();
+    if (controller.props.state.kind !== 'ready') throw new Error('expected ready');
+    expect(controller.props.state.rows).toHaveLength(1);
+    controller.props.onAdd('link');
+    expect(navigation.calls.at(-1)).toEqual({
+      name: 'openEditor',
+      args: [{ mode: 'create', type: 'link', origin: 'Inbox' }],
+    });
+
+    // Changing type filters, including a zero-row Images result, must not affect onAdd.
+    for (const type of ['all', 'note', 'image'] as const) {
+      controller.props.onQueryChange({ archived: false, text: '', type, tagKey: null });
+      await flushAsync();
+      controller.props.onAdd('image');
+      expect(navigation.calls.at(-1)).toEqual({
+        name: 'openEditor',
+        args: [{ mode: 'create', type: 'image', origin: 'Inbox' }],
+      });
+    }
+  });
+
 });
