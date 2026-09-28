@@ -47,6 +47,7 @@ As of 28 September 2026 in the integration environment:
 - Baseline commit `1af6a69f6638e3c2fd26319efd253084e24760e0` was verified before integration.
 - A, B, and C were integrated as separate commits before master integration fixes.
 - A strict TypeScript check of the contracts/domain/core controllers using the system TypeScript compiler passed without production typing stubs.
+- A supplemental runtime smoke passed 6/6 targeted scenarios: normalization/URL rejection, duplicate Save, explicit conflict overwrite, stale image suppression, mailbox/focus refresh, and duplicate archive/pending Back.
 - `npm ci` is currently **BLOCKED** by npm-registry DNS/transport failure; the bounded online attempt timed out without restoring dependencies, and offline install is **BLOCKED** because required tarballs such as `zod-3.25.76.tgz` are not cached.
 - Therefore canonical `npm run typecheck`, `npm test`, Expo dependency checks, and `npm run export:android` cannot be treated as passed until dependencies install successfully.
 - Android native launch, APK build, and physical-phone testing are **NOT RUN**.

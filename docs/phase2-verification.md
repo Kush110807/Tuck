@@ -28,7 +28,7 @@ Date: 28 September 2026.
 | UI scan for direct persistence/picker/browser/navigation APIs | **PASSED** |
 | Package vs lockfile dependency/devDependency versions | **PASSED** — exact root maps match; no dependency version changed in Phase 2 |
 | Strict platform-neutral TypeScript check of contracts/domain/core controllers with `types: []` | **PASSED** |
-| Supplemental runtime smoke: normalization + explicit conflict decision + cross-list revisit freshness | **PASSED** |
+| Supplemental runtime smoke | **PASSED — 6/6**: domain normalization/URL rejection; duplicate Save guard; explicit edit-conflict overwrite decision; stale image-resolution suppression; one-shot mailbox + focus refresh; duplicate archive + pending-Back guard |
 
 The supplemental TypeScript/runtime checks deliberately exclude React Native/Expo-dependent modules. They do not replace the canonical project checks below.
 
@@ -43,6 +43,7 @@ The supplemental TypeScript/runtime checks deliberately exclude React Native/Exp
 | `npm run export:android` | **BLOCKED**, exit `127` — `expo: not found` because dependency restore is blocked |
 | `npx --offline expo install --check` | **BLOCKED**, exit `1` — Expo package metadata is not available to npm in offline cache (`ENOTCACHED`) |
 | `npx --offline expo-doctor` | **BLOCKED**, exit `1` — `expo-doctor` is not present in npm cache (`ENOTCACHED`) |
+| `npx --offline eas-cli --version` | **BLOCKED**, exit `1` — `eas-cli` is not present in npm cache (`ENOTCACHED`) |
 
 These are environment/package-access blockers, not converted into passes or hidden by test/type stubs.
 
@@ -59,7 +60,7 @@ This review is **not** a substitute for `npx expo install --check` / Expo Doctor
 ## Android/build evidence
 
 - Java is available.
-- `adb`, standalone Gradle, EAS CLI, and a local Android SDK were not found.
+- `adb`, standalone Gradle, and a local Android SDK were not found. EAS CLI is not installed, and offline `npx` retrieval is blocked because `eas-cli` is not cached.
 - `eas.json` requests an internal Android APK through `android.buildType: "apk"`.
 - Native Android launch: **NOT RUN**.
 - APK build: **NOT RUN**.

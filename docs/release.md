@@ -10,7 +10,7 @@ This document records what is and is not proven for the integrated candidate. A 
 - Java: OpenJDK `21.0.11`
 - `adb`: not found
 - standalone `gradle`: not found
-- EAS CLI: not found
+- EAS CLI: not installed; offline `npx` retrieval is `ENOTCACHED`
 - local Android SDK environment variables/common SDK directories: not found
 - physical Android phone: user confirms one is available; model, Android version, and test results are still pending
 
@@ -36,6 +36,7 @@ Observed in this integration environment:
 - `npm run export:android` — **BLOCKED**, exit `127`: `expo: not found` because the dependency tree is absent.
 - `npx --offline expo install --check` — **BLOCKED**, exit `1`: npm reports `ENOTCACHED` for Expo.
 - `npx --offline expo-doctor` — **BLOCKED**, exit `1`; `expo-doctor` is not present in the npm cache (`ENOTCACHED`).
+- `npx --offline eas-cli --version` — **BLOCKED**, exit `1`; `eas-cli` is not present in the npm cache (`ENOTCACHED`).
 
 A separate strict TypeScript check over the contracts, domain code, and core controllers using the system `tsc` passed without weakening production contracts or adding source stubs. It is supplemental evidence only and does not replace the canonical project check.
 
