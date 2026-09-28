@@ -14,6 +14,19 @@ Status vocabulary: **PASS**, **FAIL**, **BLOCKED**, **NOT RUN**.
 - install/launch method: ____________________
 - test date/time: ____________________
 
+## Focused NEW-01 retest — create another item
+
+The prior repaired SHA `b1f0dba85a1cb278785776441a40ed33f6dfad6b` was exercised on **Motorola Edge 40 / Android 15**. It passed the recorded core journeys but failed because Inbox creation controls disappeared once an active item existed. The rows below must be rerun on the new repair SHA/build; do not carry the old device results forward.
+
+| Check | Expected result | Status |
+|---|---|---|
+| Empty Inbox | Add note / Add link / Add image are visible | **NOT RUN** |
+| Create item 1, return to populated Inbox | Same create controls remain visible while item 1 stays active | **NOT RUN** |
+| Create item 2 immediately | Item 2 can be created/saved without archiving item 1 | **NOT RUN** |
+| All / Notes / Images filters | General create controls remain visible under every type filter | **NOT RUN** |
+| Search/tag zero-match state | Create controls remain visible and Clear filters remains available | **NOT RUN** |
+| Narrow screen + large text | Create/header controls wrap/reflow without losing Archive or creation actions | **NOT RUN** |
+
 ## Focused P3 repair checks
 
 | ID | Check | Expected result | Status |

@@ -187,3 +187,68 @@ The final external handoff records the exact packaged Git SHA and ZIP SHA-256 be
 - Physical Android verification: **NOT RUN**; phone is available from the user, but model/Android version/build identity/results are pending.
 
 Use `docs/qa-plan.md` for the exact phone matrix and `docs/independent-rereview-handoff.md` for separate re-review.
+
+## 9. Device-discovered repair NEW-01 — persistent Inbox create affordance
+
+A physical-device pass against the prior repaired candidate `b1f0dba85a1cb278785776441a40ed33f6dfad6b` on **Motorola Edge 40 / Android 15** found one additional release-blocking production defect after the P3-01..P3-06 source repairs.
+
+### Prior-device evidence on `b1f0dba...`
+
+**PASS:** cold launch; reopen after closing; create first item; edit/save; dirty-editor discard confirmation; archive; restore; search; no-results state; image display/persistence; persistence after restart.
+
+**FAIL — NEW-01:** after the first active item existed, Inbox no longer displayed any Add/New-item control. The same absence occurred under Notes and Images. Archiving the only active item made the empty-state create controls visible again.
+
+### Root cause
+
+`src/ui/screens/InboxScreen.tsx` supplied the three create buttons only through `ListScreenView.emptyAction`. `ListScreenView` renders `emptyAction` solely when the list is `ready`, has zero rows, and has no active filters. Creation was therefore accidentally coupled to the unfiltered empty state even though `InboxScreenProps.onAdd(type)` and `InboxController` remained valid in every list state.
+
+### Repair
+
+The existing Add note / Add link / Add image buttons now render in Inbox's always-present `headerActions` area alongside Archive. The empty-state-only placement was removed. No shared contract change was required.
+
+This keeps the general creation path visible independently of:
+
+- zero, one, or many active items;
+- All / Notes / Links / Images filters;
+- search or tag filters, including zero-match states;
+- loading/refresh, failed-load-with-previous-rows, feedback and normal list rendering.
+
+### Regression evidence
+
+Committed regressions:
+
+- `tests/ui/InboxScreen.createAffordance.test.ts` guards the exact production wiring: all three create controls are in the unconditional header path and are not passed through `emptyAction`.
+- `tests/controllers/listControllers.test.ts` now verifies create navigation before the first row, after an active item is present, and under All / Notes / Images filters including a zero-row Images result.
+
+Supplemental dependency-free repaired-source checks executed after the change:
+
+- **PASS** — UI source wiring: create controls are unconditional header actions rather than an empty-state action.
+- **PASS** — compiled production `InboxController`: create path works with empty state, one active item, and All / Notes / Images query states.
+- **PASS** — syntax transpile of `InboxScreen.tsx` and the two changed regression test files with system TypeScript 5.8.3.
+
+The committed Vitest regressions have not yet executed under Vitest because the clean dependency installation remains blocked; see the command record below.
+
+### Canonical command attempt after NEW-01 repair
+
+A fresh online `npm ci --ignore-scripts --no-audit --no-fund` was attempted once. It made partial progress but hit the execution-environment transport timeout. An offline check then failed with `ENOTCACHED` for `zod-3.25.76.tgz`. The partial `node_modules` tree is excluded from the candidate.
+
+| Command | Actual result | Classification |
+|---|---|---|
+| `npm run typecheck` | exit 2; `expo/tsconfig.base` and Node/React/RN type definitions unavailable in the incomplete dependency tree | **BLOCKED** |
+| `npm test` | exit 127; `vitest: not found` | **BLOCKED** |
+| `npm run export:android` | exit 127; `expo: not found` | **BLOCKED** |
+| `npx expo install --check` | attempted; dependency/package resolution did not complete before the bounded execution timeout | **BLOCKED** |
+| `git status --short` | empty after committed repair/docs changes; rerun again during ZIP verification | **PASS** |
+
+### Required phone retest for NEW-01
+
+Run on the exact new candidate/build identity:
+
+1. Launch Inbox with zero active items and confirm Add note, Add link and Add image are visible.
+2. Create and save item 1; return to Inbox and confirm the three create controls remain visible while item 1 is still active.
+3. Immediately create and save item 2 without archiving item 1.
+4. With active items present, switch through All, Notes and Images and confirm the general creation controls remain visible in every filter, including a zero-match Images/Notes state.
+5. Apply search/tag criteria that yield no matches and confirm creation controls remain visible while Clear filters still behaves normally.
+6. Recheck empty, loading/refresh, failure-with-previous-items, feedback and Archive entry behavior for visual/layout regressions.
+
+This NEW-01 repair has **not yet been independently re-reviewed** and the new candidate has **not yet been phone-retested**.

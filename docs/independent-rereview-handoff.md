@@ -21,6 +21,20 @@ Use the repaired production source and the new committed regression assertions i
 5. **P3-05 disappeared edit target:** verify initial edit load and later save-time `NOT_FOUND` return once to Inbox with explanatory feedback, never false save success/Detail navigation. Confirm a transient `DB_FAILED` stays in Editor. Recheck conflict overwrite for records that still exist.
 6. **P3-06 active tag:** select a tag, combine another filter/search so zero rows match, verify the selected tag remains visible/individually clearable, then clear it and recover expected rows. Confirm AND semantics and Inbox/Archive separation.
 
+## Additional device-discovered repair: NEW-01
+
+The prior repaired candidate `b1f0dba85a1cb278785776441a40ed33f6dfad6b` was tested on a Motorola Edge 40 running Android 15. The device pass found that Add note/link/image were visible only when Inbox was empty; after item 1 existed, there was no create affordance until that item was archived.
+
+The repair moves the existing three create actions from the empty-state-only slot into Inbox's unconditional header actions. No contract change was made. Independently recheck on the new candidate:
+
+1. empty Inbox shows all three create controls;
+2. after saving item 1, those controls remain visible and item 2 can be created immediately;
+3. All / Notes / Images filters do not hide the general creation path;
+4. a zero-match search/tag/type combination still shows creation controls while Clear filters works;
+5. narrow-screen/large-text layout still exposes Archive and creation actions.
+
+Do not treat the old Motorola pass as evidence for the new repair SHA; record the new source/build identity and rerun it.
+
 ## Adjacent regressions that must remain intact
 
 - a second concurrent modification before confirmed overwrite requires a second explicit confirmation and preserves the local draft;
