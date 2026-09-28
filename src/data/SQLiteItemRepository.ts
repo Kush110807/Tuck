@@ -206,12 +206,25 @@ export class SQLiteItemRepository implements ItemRepository {
         await this.migrate(db);
         await this.verifyDatabaseIntegrity(db);
 
-        // Metadata is usable once DB initialization succeeds. Image-directory
-        // maintenance is deliberately best-effort so a recoverable filesystem
-        // problem cannot hide notes, links, or image metadata.
-        this.initialized = true;
+        // Database-backed maintenance state is part of initialization: if the
+        // cleanup queue itself cannot be read/written, report initialization
+        // failure honestly. Physical file removals remain non-fatal here: the
+        // queue is retained when removeFile() fails.
+        const cleanup = await this.retryPendingFileCleanupUnsafe(db);
+        if (!cleanup.ok) throw new Error(cleanup.error.message);
+
         this.reconciliationPending = true;
-        await this.runImageMaintenanceBestEffort(db);
+        const reconcile = await this.reconcileUnreferencedImages(db);
+        if (!reconcile.ok && reconcile.error.code === 'DB_FAILED') {
+          throw new Error(reconcile.error.message);
+        }
+        if (reconcile.ok) this.reconciliationPending = false;
+
+        // A filesystem-only reconciliation/enumeration failure is recoverable:
+        // complete database reference information has already been read and no
+        // deletion is attempted from an incomplete file listing. Metadata can
+        // therefore remain available while an explicit/later retry is pending.
+        this.initialized = true;
         return { ok: true, value: undefined };
       } catch {
         return { ok: false, error: initError('Could not initialize local storage.') };

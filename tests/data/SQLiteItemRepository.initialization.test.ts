@@ -65,6 +65,34 @@ describe('SQLiteItemRepository initialization boundaries', () => {
     expect(imageStore.removeFile).toHaveBeenCalledWith(orphan);
   });
 
+  it('still fails initialization when the cleanup queue cannot be read from SQLite', async () => {
+    const db = createDatabase();
+    db.getAllAsync.mockImplementation(async (sql: string) => {
+      if (sql.includes('pending_file_deletions')) throw new Error('sqlite read failed');
+      if (sql.includes('SELECT image_path FROM items')) return [];
+      if (sql.includes('FROM items i')) return [noteRow];
+      return [];
+    });
+    vi.mocked(SQLite.openDatabaseAsync).mockResolvedValue(db as never);
+    const imageStore = {
+      prepare: vi.fn(() => ({ ok: true, value: undefined }) as Result<void>),
+      removeFile: vi.fn(async () => ({ ok: true, value: undefined } as const)),
+      listOwnedRelativePaths: vi.fn(() => ({ ok: true, value: [] }) as Result<readonly RelativeImagePath[]>),
+    } as unknown as PersistentImageStore;
+    const repository = new SQLiteItemRepository(imageStore);
+
+    const initialized = await repository.initialize();
+    expect(initialized.ok).toBe(false);
+    if (initialized.ok) throw new Error('expected initialization failure');
+    expect(initialized.error.code).toBe('INIT_FAILED');
+
+    const listed = await repository.list({ archived: false, text: '', type: 'all', tagKey: null });
+    expect(listed.ok).toBe(false);
+    if (listed.ok) throw new Error('expected blocked metadata access');
+    expect(listed.error.code).toBe('DB_FAILED');
+    expect(imageStore.listOwnedRelativePaths).not.toHaveBeenCalled();
+  });
+
   it('still blocks repository access when SQLite integrity verification fails', async () => {
     const db = createDatabase('*** database corruption detected ***');
     vi.mocked(SQLite.openDatabaseAsync).mockResolvedValue(db as never);
