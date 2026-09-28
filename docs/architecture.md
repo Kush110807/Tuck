@@ -93,3 +93,13 @@ List, Detail, and Editor image-related async work uses generation guards so stal
 Conflict handling remains conservative: local draft is preserved; newest metadata is held only as a concurrency baseline; no overwrite occurs without explicit confirmation. A second concurrent modification before confirmed overwrite produces another conflict and another confirmation.
 
 Preview repositories, fixture records, and preview state screens are outside the production graph.
+
+## Phase 5B-A data foundation
+
+Phase 5B-A extends the existing repository/data graph only; the Phase 5A native-stack screen graph remains unchanged in this gate.
+
+`SQLiteItemRepository` now implements the item and organisation repository surfaces over schema v2. Schema v2 adds `collections`, nullable `items.collection_id` with `ON DELETE SET NULL`, and persisted `items.pinned`. The existing `item_tags` and image-cleanup architecture remain unchanged.
+
+Startup now follows a versioned `0 -> 1 -> 2` migration chain, with each step transactionally advancing `PRAGMA user_version` only after its schema work succeeds. After migration, `quick_check` plus `foreign_key_check` gate repository readiness. An interrupted v1 -> v2 transaction therefore rolls back to an intact/retryable v1 database rather than exposing a partially upgraded schema.
+
+The repository provides Collection CRUD, collection-aware item create/update/query, dedicated pinning, deterministic sorting, derived Pinned/Untagged/Unfiled query presets, active Collection/tag aggregation, and Library overview data. No Library UI, bottom navigation, organisation sheets, or tag-management mutations are introduced yet; those remain later Phase 5B gates.

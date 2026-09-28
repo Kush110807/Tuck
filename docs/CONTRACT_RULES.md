@@ -51,3 +51,21 @@ Persist images under safe app-owned `images/<UUID>.<approved extension>` paths. 
 ## Navigation and guards
 
 Create success removes the completed Editor from the back stack and opens Detail. Edit success returns to the existing Detail where possible. Archive returns to Inbox; restore returns to Archive; delete returns to the origin list. Dirty Editor exit requires Keep editing/Discard. Pending Save/archive/delete blocks competing exit/mutation. Native stack gestures/headers do not bypass controller guards, and Android hardware Back uses the same boundaries.
+
+## Phase 5B-A organisation foundation
+
+Phase 5B-A adds persistence/query contracts without changing the Phase 5A screen or navigation model yet.
+
+- `SavedItem` now carries `collectionId: CollectionId | null` and `pinned: boolean`.
+- Create/update support optional Collection assignment. Existing Phase 5A callers that omit Collection data remain valid and create unfiled items.
+- `ItemQuery` adds optional Collection/pin/tag-presence/Collection-presence filters and deterministic `SortOrder`; omitted new fields preserve Phase 5A behaviour and omitted sort means `updated_desc`.
+- Collection names use NFKC + trim + whitespace collapse with a lowercase logical key, reject logical duplicates, and are limited to 60 Unicode code points.
+- Explicit Collection assignment/move/removal uses normal item `update()` and advances `updatedAt`, consistent with tag metadata edits.
+- `setPinned()` is separate from normal update and never changes `updatedAt`.
+- Collection deletion uses `ON DELETE SET NULL`; it never deletes items or rewrites item timestamps.
+- Pinned archived items retain `pinned=true` but active Pinned queries always require `archived=false`.
+- Smart Views are derived presets only: Pinned, Untagged, and Unfiled. They are not persisted.
+- `listTags()` remains read-only in 5B-A; tag storage/normalization is unchanged and migration never rewrites tag rows.
+- Schema v2 migration is atomic/versioned. Successful v2 databases are not automatically downgrade-compatible with the Phase 5A/schema-v1 binary.
+
+See `docs/phase5b-a-foundation.md` for the exact schema, migration, query, aggregation, and upgrade rules.
