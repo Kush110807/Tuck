@@ -5,6 +5,7 @@ import {
   mergeTagsThreeWay,
 } from '../../src/sync/merge';
 import {
+  canApplySyncResponse,
   canRemoveAccountCache,
   createProfileRegistry,
   globalSignOut,
@@ -15,6 +16,7 @@ import {
 } from '../../src/sync/profileState';
 import {
   localPendingAssetState,
+  localUnscheduledAssetState,
   reduceAssetState,
   remoteKnownAssetState,
 } from '../../src/sync/assetState';
@@ -27,6 +29,16 @@ describe('Phase 6A merge/conflict-copy helpers', () => {
       ['Study', 'Build'],
       ['study', 'Important'],
     )).toEqual(['Study', 'Build', 'Important']);
+  });
+
+  it('covers the frozen tag merge edge matrix deterministically', () => {
+    expect(mergeTagsThreeWay(['Base'], ['Base', 'Same'], ['Base', 'same'])).toEqual(['Base', 'Same']);
+    expect(mergeTagsThreeWay(['Keep', 'Remove'], ['Keep', 'Remove'], ['Keep'])).toEqual(['Keep']);
+    expect(mergeTagsThreeWay(['Keep', 'Remove'], ['Keep'], ['Keep'])).toEqual(['Keep']);
+    expect(mergeTagsThreeWay([], ['Alpha'], ['alpha'])).toEqual(['Alpha']);
+    expect(mergeTagsThreeWay([], ['Café'], ['Café'])).toEqual(['Café']);
+    expect(mergeTagsThreeWay(['Base'], ['Base', 'Server 1', 'Server 2'], ['Base', 'Local 1', 'Local 2']))
+      .toEqual(['Base', 'Server 1', 'Server 2', 'Local 1', 'Local 2']);
   });
 
   it('creates a normal local conflict copy without leaking version numbers to the title', () => {
@@ -45,6 +57,22 @@ describe('Phase 6A merge/conflict-copy helpers', () => {
       id: 'item-conflict', title: 'Plan (conflict copy)', body: 'Local body', tags: ['Work'],
       collectionId: 'collection-1', pinned: true, archived: false,
     });
+  });
+
+  it('allows an image conflict copy to reuse the same immutable AssetId', () => {
+    const local: Omit<CanonicalItem, 'version'> = {
+      id: 'image-1', type: 'image', title: 'Reference', body: 'Local caption', url: null, assetId: 'asset-x',
+      tags: ['Visual'], collectionId: null, pinned: false, archived: false, createdAt: 1, updatedAt: 2,
+    };
+    const copy = makeConflictCopy({
+      localItem: local,
+      originalItemId: 'image-1',
+      newItemId: 'image-copy',
+      validCollectionIds: new Set(),
+    });
+    expect(local.assetId).toBe('asset-x');
+    expect(copy.assetId).toBe('asset-x');
+    expect(copy.id).toBe('image-copy');
   });
 
   it('moves a conflict copy to Unfiled if its original Collection was deleted', () => {
@@ -88,6 +116,20 @@ describe('Phase 6A local profile/logout state machine', () => {
     expect(state.profiles['account:a']).toMatchObject({ status: 'signed-in', syncPaused: false, pendingOutboxCount: 3 });
   });
 
+  it('rejects late account-A responses after switching to B or resuming A under a new generation', () => {
+    let state = signInAccount(createProfileRegistry(), 'a');
+    const a1 = state.sessionGeneration;
+    expect(canApplySyncResponse(state, 'a', a1)).toBe(true);
+
+    state = signInAccount(state, 'b');
+    expect(canApplySyncResponse(state, 'a', a1)).toBe(false);
+    expect(canApplySyncResponse(state, 'b', state.sessionGeneration)).toBe(true);
+
+    state = signInAccount(state, 'a');
+    expect(canApplySyncResponse(state, 'a', a1)).toBe(false);
+    expect(canApplySyncResponse(state, 'a', state.sessionGeneration)).toBe(true);
+  });
+
   it('blocks local cache removal while unsynced-only work or transfers remain', () => {
     let state = signInAccount(createProfileRegistry(), 'a');
     state = updatePendingCounts(state, 'a', 1, 0);
@@ -129,7 +171,7 @@ describe('Phase 6A local profile/logout state machine', () => {
 
 describe('Phase 6A asset state model', () => {
   it('distinguishes a known remote asset from a genuinely missing local file', () => {
-    const remote = remoteKnownAssetState('asset-1', 'item-1');
+    const remote = remoteKnownAssetState('asset-1');
     expect(remote).toMatchObject({
       localState: 'remote_known_not_downloaded', remoteState: 'ready', uploadState: 'not_required',
     });
@@ -137,8 +179,27 @@ describe('Phase 6A asset state model', () => {
     expect(missing).toMatchObject({ localState: 'missing', remoteState: 'ready' });
   });
 
+  it('keeps migrated local images not_scheduled until sync explicitly queues upload', () => {
+    let state = localUnscheduledAssetState('asset-1');
+    expect(state).toMatchObject({ localState: 'available', remoteState: 'unknown', uploadState: 'not_scheduled', uploadAttempts: 0 });
+    state = reduceAssetState(state, { type: 'QUEUE_UPLOAD' });
+    expect(state).toMatchObject({ uploadState: 'pending', uploadAttempts: 1 });
+    state = reduceAssetState(state, { type: 'UPLOAD_READY' });
+    expect(state).toMatchObject({ uploadState: 'uploaded', remoteState: 'ready' });
+  });
+
+  it('supports not_scheduled -> pending -> failed -> pending -> uploaded retry flow', () => {
+    let state = localUnscheduledAssetState('asset-retry');
+    state = reduceAssetState(state, { type: 'QUEUE_UPLOAD' });
+    state = reduceAssetState(state, { type: 'UPLOAD_FAILED', errorCode: 'NETWORK' });
+    expect(state).toMatchObject({ uploadState: 'failed', uploadAttempts: 1 });
+    state = reduceAssetState(state, { type: 'QUEUE_UPLOAD' });
+    state = reduceAssetState(state, { type: 'UPLOAD_READY' });
+    expect(state).toMatchObject({ uploadState: 'uploaded', remoteState: 'ready', uploadAttempts: 2 });
+  });
+
   it('models upload retry independently from local availability', () => {
-    let state = localPendingAssetState('asset-1', 'item-1');
+    let state = localPendingAssetState('asset-1');
     state = reduceAssetState(state, { type: 'QUEUE_UPLOAD' });
     state = reduceAssetState(state, { type: 'UPLOAD_FAILED', errorCode: 'NETWORK' });
     expect(state).toMatchObject({ localState: 'available', uploadState: 'failed', remoteState: 'unknown', uploadAttempts: 1 });
@@ -148,7 +209,7 @@ describe('Phase 6A asset state model', () => {
   });
 
   it('models download pending/failure/retry without overloading imagePath', () => {
-    let state = remoteKnownAssetState('asset-1', 'item-1');
+    let state = remoteKnownAssetState('asset-1');
     state = reduceAssetState(state, { type: 'QUEUE_DOWNLOAD' });
     expect(state).toMatchObject({ localState: 'download_pending', downloadAttempts: 1 });
     state = reduceAssetState(state, { type: 'DOWNLOAD_FAILED', errorCode: 'TIMEOUT' });

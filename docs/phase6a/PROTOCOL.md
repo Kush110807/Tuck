@@ -8,7 +8,7 @@ The TypeScript wire contract is `src/sync/protocol.ts`. This document freezes be
 - Entity IDs remain stable `TEXT` IDs shared by local/cloud/web.
 - Mutation IDs are UUIDs and are immutable idempotency keys.
 - Server entity versions start at `1` and increment for each accepted canonical entity change.
-- Server change sequence is monotonically increasing and never comes from a device clock.
+- Server change sequence is monotonically increasing **per account**, allocated from a transactional account-head row, and never comes from a device clock or PostgreSQL identity/sequence allocation.
 - `updatedAt` is domain metadata only.
 - Tags are owned by the Item version; `item_tags` rows do not have independent versions.
 - A pull cursor is persisted in the same local transaction that applies the corresponding change batch.
@@ -55,13 +55,15 @@ Any future finite-retention design requires a new protocol revision and may not 
 
 Client-driven pagination over live tables can race concurrent writes. Protocol v1 therefore materializes a bounded bootstrap snapshot server-side.
 
-On the first bootstrap request, the server opens one `REPEATABLE READ` transaction and:
+On the first bootstrap request, the server opens one `REPEATABLE READ` transaction. The first data-bearing reads establish one MVCC snapshot and, within that same snapshot, the server:
 
 1. authenticates/scopes the account;
-2. captures the account's current change-log head `snapshotHeadSequence` from the same database snapshot;
-3. reads all current canonical Collections, Items+tags and asset metadata from that same snapshot;
+2. reads `private.account_sync_heads.head_seq` as `snapshotHeadSequence`;
+3. reads canonical state from exactly that same snapshot;
 4. writes immutable `bootstrap_entries` in deterministic order into a new `bootstrap_session`;
 5. commits the session and first page together.
+
+The account head is updated transactionally by writers. Therefore an uncommitted writer is invisible together with its future head value; a writer committed before the bootstrap snapshot is visible together with its entity effects and head. This paired visibility is the bootstrap cursor-safety proof.
 
 The snapshot session TTL is **1 hour**. Cleanup may remove expired sessions/entries without touching user data or change history.
 
@@ -114,7 +116,7 @@ After the final page, the local state represents exactly the server snapshot pai
 
 ### 5.4 Concurrent mutation during bootstrap
 
-Writes after the snapshot transaction are not part of the frozen bootstrap entries. They necessarily produce `sync_changes` with sequence greater than `snapshotHeadSequence` and are collected by the catch-up pull. Therefore no concurrent server mutation can be skipped.
+Writes not visible in the bootstrap MVCC snapshot are not part of the frozen entries. Because per-account writers serialize on `private.account_sync_heads`, any such later-visible committed write receives a sequence strictly greater than the snapshot's visible head and is collected by catch-up pull. Therefore no concurrent server mutation can be skipped.
 
 ## 6. INITIAL_SYNC_COMPLETE
 
@@ -147,7 +149,7 @@ Request:
 - bounded `limit` (1..500);
 - optional `targetHeadSequence`.
 
-If target is omitted, the server captures the current account head and returns it as the finite target for this pull cycle. A page contains only immutable changes:
+If target is omitted, the server reads the currently committed `private.account_sync_heads.head_seq` and returns it as the finite target for this pull cycle. Once head N is visible, all account changes `<= N` are already committed and no future writer can later publish a change `<= N`; later writers must lock the same account-head row and receive values `> N`. A page contains only immutable changes:
 
 `afterSequence < seq <= targetHeadSequence`
 
@@ -186,6 +188,10 @@ The client outbox normally sends by durable `position ASC`. Dependencies are hon
 - entity create before later patch/delete.
 
 ### 9.2 Transaction/idempotency
+
+For every mutation that emits one or more sync changes, the RPC transaction locks the caller's `private.account_sync_heads` row (`SELECT ... FOR UPDATE` or an equivalent atomic `UPDATE`). While holding that per-account row lock it allocates the exact consecutive sequence value(s), applies entity/version effects, inserts the corresponding `sync_changes`, records the processed-mutation result, and commits all effects together. A competing writer for the same account blocks until the lock holder commits or rolls back. Accounts do not block one another. PostgreSQL `IDENTITY`, `SERIAL`, `nextval()` or any other non-transactional sequence allocator is **not** a synchronization ordering authority.
+
+The invariant is: once committed account head `N` is observable, no future committed change for that account can appear with sequence `<= N`. A rollback exposes neither its reserved sequence(s), entity changes, change rows nor a higher committed head.
 
 For each accepted logical mutation, these effects are atomic:
 
@@ -405,4 +411,34 @@ Upload states:
 
 Existing Phase 5A/5B-A image paths/files are preserved during v3 migration. They begin `available + unknown + not_scheduled`, receive an asset ID, and are queued for upload only during explicit account migration/sync enablement.
 
+Ready Assets are immutable and reusable: multiple Items may reference the same `assetId`. A conflict copy that represents the same image bytes preserves that `assetId`; it does not duplicate bytes or mint a new asset solely because the Item was copied. Cleanup may remove an Asset only when **no live Item** in the account references it and the staging/orphan grace rules also permit cleanup.
+
+Protocol-v1 asset change visibility is:
+
+- staging creation is transfer bookkeeping and emits no client `sync_change`;
+- `staging -> ready` increments the Asset version and emits the canonical ready Asset **upsert**;
+- Items may reference only ready Assets;
+- eventual unreferenced asset garbage collection emits no account-lifetime tombstone and no delete change in protocol v1. By the time GC is allowed, no live Item references the Asset; clients may evict unreferenced local asset metadata/cache opportunistically after applying Item changes or during bootstrap/reconciliation.
+
 A new remote image Item can be materially present in the local database before the image bytes are downloaded. Metadata UI must remain usable while the asset state is `remote_known_not_downloaded`/`download_pending`/`download_failed`.
+
+## 14. Protocol-v1 wire validation
+
+`src/sync/validation.ts` is the executable reference validator for push requests/mutations.
+
+The outer push request must contain exactly `protocolVersion`, `accountId`, and `mutations`; the authenticated caller must be present and match `accountId`.
+
+Every mutation must:
+
+- contain exactly the frozen top-level fields;
+- use protocol version 1;
+- use a canonical UUID mutation ID;
+- keep account/device/entity identifiers within 1..128 code units with no control characters;
+- use entity type `item` or `collection` and action `create`, `patch`, or `delete`;
+- use only the allowed field names for that entity;
+- for patch, contain at least one semantic field, supply a new value for every changed field, and supply a base value for every changed field except `updatedAt`;
+- contain no base/new-value keys outside `changedFields`;
+- for delete, use empty changed/base/new payloads and a positive base server version;
+- for create, use `baseServerVersion=null`, the complete frozen create field set, empty base values, and no extra create fields.
+
+Entity IDs deliberately remain validated TEXT and are **not** required to be UUIDs. A structurally valid mutation belonging to another account is classified as `WRONG_ACCOUNT`, never applied.

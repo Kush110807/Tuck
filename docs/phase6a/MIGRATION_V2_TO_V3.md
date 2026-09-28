@@ -35,7 +35,7 @@ A crash/failure before that point rolls the transaction back to a valid v2 datab
    - insert `asset_sync_state` with `local_state='available'`, `remote_state='unknown'`, `upload_state='not_scheduled'`, zero attempts and no error;
    - preserve the existing `image_path` byte-for-byte;
    - do **not** copy, delete, rename or re-encode the existing image file.
-8. Verify all note/link Items have `asset_id IS NULL` and all image Items have a non-null, unique asset ID.
+8. Verify all note/link Items have `asset_id IS NULL` and all image Items have a non-null asset ID. Existing rows receive freshly generated IDs during this migration, but schema v3 deliberately does **not** require one Asset per Item: a later conflict copy may reuse the same immutable `asset_id`.
 9. Create the two `items_asset_id_*_guard` triggers from `local-schema-v3.sql`.
 10. Re-run `PRAGMA foreign_key_check` inside the migration transaction.
 11. Set `PRAGMA user_version = 3`.

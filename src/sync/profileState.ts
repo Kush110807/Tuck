@@ -128,3 +128,22 @@ export function canRemoveAccountCache(profile: AccountProfile): RemoveAccountCac
   if (profile.pendingAssetTransfers > 0) return { allowed: false, reason: 'PENDING_ASSET_TRANSFER' };
   return { allowed: true };
 }
+
+/**
+ * Guards async sync responses against account switches/logouts. A response may
+ * mutate local state only if it belongs to the still-active account and the
+ * exact session generation that launched the request.
+ */
+export function canApplySyncResponse(
+  state: ProfileRegistryState,
+  accountId: string,
+  requestGeneration: number,
+): boolean {
+  const key = accountProfileKey(accountId);
+  const profile = state.profiles[key];
+  return state.sessionGeneration === requestGeneration &&
+    state.activeProfileKey === key &&
+    profile?.kind === 'account' &&
+    profile.status === 'signed-in' &&
+    !profile.syncPaused;
+}

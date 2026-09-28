@@ -2,7 +2,16 @@
 
 This handoff is for review of the Phase 6A candidate built directly on accepted baseline `813999a097b15a40d94fcbba8f4f14577d40261c`.
 
-The candidate's exact final Git SHA and ZIP SHA-256 are reported with the delivered artifact rather than hard-coded into this tracked file.
+This file describes the repaired Phase 6A contract. Exact repaired Git SHA and ZIP SHA-256 are reported with the delivered artifact rather than hard-coded here.
+
+## Repair delta after independent rejection
+
+The rejected `1fb67bbb660cac5d0a86b47fff9377e2f89afe9c` candidate was repaired without beginning Phase 6B:
+
+- P6A-01: replaced identity/nextval cursor authority with a transactional per-account sync head and executable lock/rollback reference model;
+- P6A-02: froze ready Assets as immutable/reusable and removed one-Item-per-Asset assumptions;
+- P6A-03: added executable `not_scheduled` upload state and exact retry transitions;
+- P6A-04: added shared protocol-v1 push/mutation wire validation including UUID, identifier, field, action and payload-shape enforcement.
 
 ## Scope completed
 
@@ -23,7 +32,7 @@ Phase 6A freezes, without deploying production sync:
 
 ## Frozen bootstrap decision
 
-Bootstrap uses a one-hour server-materialized snapshot session created from a single REPEATABLE READ database view. The session contains immutable, ordinal-paginated canonical Collection/Item/asset entries and a `snapshotHeadSequence` captured from the same view.
+Bootstrap uses a one-hour server-materialized snapshot session created from a single REPEATABLE READ database view. Its `snapshotHeadSequence` is the committed per-account transactional head visible in that exact MVCC snapshot; identity/nextval ordering is not used. The session contains immutable, ordinal-paginated canonical Collection/Item/asset entries and a `snapshotHeadSequence` captured from the same view.
 
 After the final bootstrap page, the client performs a bounded catch-up pull to a finite captured `targetHeadSequence`. Initial sync is complete only when that target cursor and all corresponding changes are atomically applied and persisted.
 
@@ -57,7 +66,7 @@ A new locally generated stable ID is used. The user's local desired Item is copi
 
 ## Asset contract
 
-`assetId` is stable cloud identity. Existing `imagePath` remains device-local path. `asset_sync_state` distinguishes remote-known/not-downloaded, download pending/failed, locally available, genuinely missing/corrupt, upload pending/failed and remote staging/ready. Existing Phase 5A/5B-A image files are preserved byte-for-byte by the designed v2→v3 migration.
+`assetId` is stable cloud identity and a ready immutable Asset may be referenced by multiple Items. Existing `imagePath` remains device-local path. `asset_sync_state` distinguishes remote-known/not-downloaded, download pending/failed, locally available, genuinely missing/corrupt, upload pending/failed and remote staging/ready. Existing Phase 5A/5B-A image files are preserved byte-for-byte by the designed v2→v3 migration.
 
 ## Reference-model test inventory
 
@@ -92,7 +101,15 @@ The deterministic Phase 6A tests cover:
 - global logout;
 - remotely deleted account;
 - remote image known but not downloaded;
-- upload/download retry states.
+- upload/download retry states;
+- transactional per-account head blocking/rollback and cursor-safety invariant;
+- same mutation UUID/same payload replay and different-payload reuse rejection;
+- bootstrap TTL expiry/restart;
+- image conflict copy reusing the same immutable AssetId;
+- `not_scheduled` upload scheduling/retry transitions;
+- late account-A response rejection after A→B switch/A resume;
+- tag merge edge matrix;
+- strict protocol-v1 malformed UUID/field/action/identifier/base-value request validation.
 
 ## Verification classification
 

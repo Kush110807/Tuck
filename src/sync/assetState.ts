@@ -9,11 +9,11 @@ export type AssetLocalState =
   | 'corrupt';
 
 export type AssetRemoteState = 'unknown' | 'staging' | 'ready';
-export type AssetUploadState = 'not_required' | 'pending' | 'failed' | 'uploaded';
+export type AssetUploadState = 'not_scheduled' | 'not_required' | 'pending' | 'failed' | 'uploaded';
 
+/** Asset state is asset-scoped: one immutable ready Asset may be referenced by many Items. */
 export type AssetSyncState = Readonly<{
   assetId: AssetId;
-  itemId: string;
   localState: AssetLocalState;
   remoteState: AssetRemoteState;
   uploadState: AssetUploadState;
@@ -40,7 +40,7 @@ export function reduceAssetState(state: AssetSyncState, event: AssetEvent): Asse
         ...state,
         remoteState: event.remoteState,
         localState: state.localState === 'available' ? 'available' : 'remote_known_not_downloaded',
-        uploadState: state.uploadState === 'pending' || state.uploadState === 'failed'
+        uploadState: state.uploadState === 'pending' || state.uploadState === 'failed' || state.uploadState === 'not_scheduled'
           ? state.uploadState
           : 'not_required',
         lastErrorCode: null,
@@ -69,10 +69,9 @@ export function reduceAssetState(state: AssetSyncState, event: AssetEvent): Asse
   }
 }
 
-export function remoteKnownAssetState(assetId: AssetId, itemId: string): AssetSyncState {
+export function remoteKnownAssetState(assetId: AssetId): AssetSyncState {
   return {
     assetId,
-    itemId,
     localState: 'remote_known_not_downloaded',
     remoteState: 'ready',
     uploadState: 'not_required',
@@ -82,15 +81,22 @@ export function remoteKnownAssetState(assetId: AssetId, itemId: string): AssetSy
   };
 }
 
-export function localPendingAssetState(assetId: AssetId, itemId: string): AssetSyncState {
+/** Existing pre-sync local images migrate here: available, remote unknown, upload not yet scheduled. */
+export function localUnscheduledAssetState(assetId: AssetId): AssetSyncState {
   return {
     assetId,
-    itemId,
     localState: 'available',
     remoteState: 'unknown',
-    uploadState: 'pending',
+    uploadState: 'not_scheduled',
     uploadAttempts: 0,
     downloadAttempts: 0,
     lastErrorCode: null,
+  };
+}
+
+export function localPendingAssetState(assetId: AssetId): AssetSyncState {
+  return {
+    ...localUnscheduledAssetState(assetId),
+    uploadState: 'pending',
   };
 }

@@ -7,7 +7,7 @@ It models:
 - account scope;
 - canonical Items/Collections/assets;
 - integer entity versions;
-- global monotonic change sequence;
+- transactional per-account committed change head/sequence;
 - mutation idempotency and request-hash reuse rejection;
 - immutable full-snapshot change payloads;
 - account-lifetime tombstones;
@@ -58,6 +58,12 @@ No wall-clock ordering decides correctness. Tests may deliberately supply absurd
 - wrong-account attempt → `fakeServer.test.ts`
 - account switch/logout with unsynced outbox → `mergeProfileAsset.test.ts`
 - remote asset known but not downloaded → `mergeProfileAsset.test.ts`
-- conflict-copy semantics → `mergeProfileAsset.test.ts`
+- conflict-copy semantics, including reusable image Asset IDs → `mergeProfileAsset.test.ts`
+- account-head writer blocking/commit-order cursor invariant → `fakeServer.test.ts`
+- bootstrap expiry → `fakeServer.test.ts`
+- mutation UUID/field/action wire validation + mutation-ID reuse → `fakeServer.test.ts`
+- account-switch late-response generation guard → `mergeProfileAsset.test.ts`
+- tag merge edge matrix → `mergeProfileAsset.test.ts`
+- `not_scheduled` asset upload transitions → `mergeProfileAsset.test.ts`
 
 Later phases still require real PostgreSQL/Supabase integration tests for RLS, RPC privilege hardening, Storage policies and transaction behavior. Passing the fake model is necessary but cannot prove those deployed properties.

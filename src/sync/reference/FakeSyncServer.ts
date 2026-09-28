@@ -30,6 +30,8 @@ import {
   type SyncChange,
   type SyncMutation,
 } from '../protocol';
+import { validatePushRequestV1, validateSyncMutationV1 } from '../validation';
+import { AccountHeadReferenceModel } from './AccountHeadReferenceModel';
 
 type ProcessedMutation = Readonly<{ requestHash: string; result: PushMutationResult }>;
 type BootstrapSession = Readonly<{
@@ -100,7 +102,8 @@ export class FakeSyncServer {
   private readonly bootstrapSessions = new Map<string, BootstrapSession>();
   private readonly now: () => number;
   private readonly bootstrapTtlMs: number;
-  private headSequence = 0;
+  private readonly accountHead = new AccountHeadReferenceModel(0);
+  private changeOwnerCounter = 0;
   private minimumRetainedSequence = 1;
   private bootstrapCounter = 0;
 
@@ -110,7 +113,7 @@ export class FakeSyncServer {
   }
 
   getHeadSequence(): number {
-    return this.headSequence;
+    return this.accountHead.getCommittedHead();
   }
 
   getMinimumRetainedSequence(): number {
@@ -212,12 +215,13 @@ export class FakeSyncServer {
         protocolVersion: SYNC_PROTOCOL_VERSION,
         accountId: this.accountId,
         minimumRetainedSequence: this.minimumRetainedSequence,
-        serverHeadSequence: this.headSequence,
+        serverHeadSequence: this.accountHead.getCommittedHead(),
       };
     }
 
-    const target = request.targetHeadSequence ?? this.headSequence;
-    if (!Number.isSafeInteger(target) || target < request.afterSequence || target > this.headSequence) {
+    const currentHead = this.accountHead.getCommittedHead();
+    const target = request.targetHeadSequence ?? currentHead;
+    if (!Number.isSafeInteger(target) || target < request.afterSequence || target > currentHead) {
       return { kind: 'error', code: 'MALFORMED_REQUEST', message: 'Invalid targetHeadSequence.' };
     }
 
@@ -241,22 +245,22 @@ export class FakeSyncServer {
   }
 
   push(request: PushMutationsRequest, callerAccountId: string = request.accountId): PushMutationsResponse {
-    const requestError = this.validateRequest(request.protocolVersion, request.accountId, callerAccountId);
-    if (requestError) return requestError;
-    if (!Array.isArray(request.mutations)) {
-      return { kind: 'error', code: 'MALFORMED_REQUEST', message: 'mutations must be an array.' };
+    const validation = validatePushRequestV1(request, callerAccountId);
+    if ('code' in validation) return { kind: 'error', code: validation.code, message: validation.message };
+    if (validation.value.accountId !== this.accountId) {
+      return { kind: 'error', code: 'WRONG_ACCOUNT', message: 'Request account does not match server account.' };
     }
 
     const results: PushMutationResult[] = [];
-    for (const mutation of request.mutations) {
-      results.push(this.processMutation(mutation, request.accountId));
+    for (const mutation of validation.value.mutations) {
+      results.push(this.processMutation(mutation, validation.value.accountId));
     }
     return {
       kind: 'ok',
       protocolVersion: SYNC_PROTOCOL_VERSION,
       accountId: this.accountId,
       results,
-      headSequence: this.headSequence,
+      headSequence: this.accountHead.getCommittedHead(),
     };
   }
 
@@ -284,7 +288,7 @@ export class FakeSyncServer {
     const session: BootstrapSession = {
       id: `bootstrap-${++this.bootstrapCounter}`,
       accountId: this.accountId,
-      snapshotHeadSequence: this.headSequence,
+      snapshotHeadSequence: this.accountHead.getCommittedHead(),
       expiresAtEpochMs: this.now() + this.bootstrapTtlMs,
       entries,
     };
@@ -293,17 +297,13 @@ export class FakeSyncServer {
   }
 
   private processMutation(mutation: SyncMutation, requestAccountId: string): PushMutationResult {
-    const mutationId = nonEmptyString((mutation as SyncMutation | undefined)?.mutationId)
-      ? mutation.mutationId
-      : 'malformed';
-    if (!this.isMutationEnvelopeValid(mutation, requestAccountId)) {
-      return this.rejected(mutationId, 'MALFORMED_MUTATION', 'Mutation envelope is malformed or inconsistent.');
+    const validation = validateSyncMutationV1(mutation, requestAccountId);
+    if ('code' in validation) {
+      return this.rejected(validation.mutationId, validation.code, validation.message);
     }
-    if (mutation.protocolVersion !== SYNC_PROTOCOL_VERSION) {
-      return this.rejected(mutation.mutationId, 'UNSUPPORTED_PROTOCOL_VERSION', 'Unsupported mutation protocol version.');
-    }
-    if (mutation.accountId !== requestAccountId || mutation.accountId !== this.accountId) {
-      return this.rejected(mutation.mutationId, 'WRONG_ACCOUNT', 'Mutation account does not match request account.');
+    mutation = validation.value;
+    if (mutation.accountId !== this.accountId) {
+      return this.rejected(mutation.mutationId, 'WRONG_ACCOUNT', 'Mutation account does not match server account.');
     }
 
     const requestHash = stableStringify(mutation);
@@ -332,17 +332,6 @@ export class FakeSyncServer {
     return result;
   }
 
-  private isMutationEnvelopeValid(mutation: SyncMutation, requestAccountId: string): boolean {
-    if (!mutation || typeof mutation !== 'object') return false;
-    if (!nonEmptyString(mutation.mutationId) || !nonEmptyString(mutation.originDeviceId) ||
-        !nonEmptyString(mutation.entityId) || !nonEmptyString(mutation.accountId)) return false;
-    if (mutation.accountId !== requestAccountId) return true; // classified as WRONG_ACCOUNT later
-    if (mutation.entityType !== 'item' && mutation.entityType !== 'collection') return false;
-    if (mutation.action !== 'create' && mutation.action !== 'patch' && mutation.action !== 'delete') return false;
-    if (!Array.isArray(mutation.changedFields) || !mutation.baseValues || !mutation.newValues) return false;
-    if (mutation.action === 'create') return mutation.baseServerVersion === null;
-    return Number.isSafeInteger(mutation.baseServerVersion) && mutation.baseServerVersion >= 1;
-  }
 
   private createItem(mutation: ItemCreateMutation): PushMutationResult {
     const tombstone = this.tombstones.get(`item:${mutation.entityId}`);
@@ -595,7 +584,7 @@ export class FakeSyncServer {
   }
 
   private recordUpsert(snapshot: CanonicalEntitySnapshot, mutationId: string | null, originDeviceId: string): number {
-    const sequence = ++this.headSequence;
+    const sequence = this.accountHead.commitImmediate(`change-${++this.changeOwnerCounter}`);
     this.changes.push({
       sequence,
       entityType: snapshot.entityType,
@@ -617,7 +606,7 @@ export class FakeSyncServer {
     mutationId: string,
     originDeviceId: string,
   ): EntityTombstone {
-    const sequence = ++this.headSequence;
+    const sequence = this.accountHead.commitImmediate(`change-${++this.changeOwnerCounter}`);
     const tombstone: EntityTombstone = {
       entityType,
       entityId,

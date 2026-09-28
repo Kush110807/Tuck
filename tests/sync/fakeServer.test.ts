@@ -9,11 +9,21 @@ import {
   type ItemPatchMutation,
   type PushMutationsRequest,
 } from '../../src/sync/protocol';
-import { FakeSyncServer } from '../../src/sync/reference';
+import { AccountHeadReferenceModel, FakeSyncServer } from '../../src/sync/reference';
 
 const ACCOUNT = 'account-a';
 const DEVICE_A = 'device-a';
 const DEVICE_B = 'device-b';
+
+const mutationIds = new Map<string, string>();
+function mid(label: string): string {
+  const existing = mutationIds.get(label);
+  if (existing) return existing;
+  const n = mutationIds.size + 1;
+  const id = `00000000-0000-4000-8000-${n.toString(16).padStart(12, '0')}`;
+  mutationIds.set(label, id);
+  return id;
+}
 
 function collection(overrides: Partial<CanonicalCollection> = {}): CanonicalCollection {
   return {
@@ -42,7 +52,7 @@ function itemPatch(
   return {
     protocolVersion: SYNC_PROTOCOL_VERSION,
     accountId: ACCOUNT,
-    mutationId,
+    mutationId: mid(mutationId),
     originDeviceId,
     entityType: 'item',
     entityId: 'item-1',
@@ -65,7 +75,7 @@ function collectionPatch(
   return {
     protocolVersion: SYNC_PROTOCOL_VERSION,
     accountId: ACCOUNT,
-    mutationId,
+    mutationId: mid(mutationId),
     originDeviceId,
     entityType: 'collection',
     entityId: 'collection-1',
@@ -81,7 +91,7 @@ function itemDelete(mutationId: string, baseServerVersion: number, originDeviceI
   return {
     protocolVersion: SYNC_PROTOCOL_VERSION,
     accountId: ACCOUNT,
-    mutationId,
+    mutationId: mid(mutationId),
     originDeviceId,
     entityType: 'item',
     entityId: 'item-1',
@@ -97,7 +107,7 @@ function collectionDelete(mutationId: string, baseServerVersion: number): Collec
   return {
     protocolVersion: SYNC_PROTOCOL_VERSION,
     accountId: ACCOUNT,
-    mutationId,
+    mutationId: mid(mutationId),
     originDeviceId: DEVICE_A,
     entityType: 'collection',
     entityId: 'collection-1',
@@ -304,6 +314,51 @@ describe('Phase 6A fake server mutation semantics', () => {
     expect(server.getItem('item-1')).toMatchObject({ title: 'Future clock', body: 'Still merges', version: 3 });
   });
 
+  it('returns original result for same mutation UUID/same payload and rejects UUID reuse with different payload', () => {
+    const server = new FakeSyncServer(ACCOUNT);
+    server.seedItem(note());
+    const firstMutation = itemPatch('reuse-id', 1, ['title', 'updatedAt'], { title: 'Title' }, { title: 'One', updatedAt: 20 });
+    const first = push(server, [firstMutation]);
+    const head = server.getHeadSequence();
+    const same = push(server, [firstMutation]);
+    expect(same.results[0]).toEqual(first.results[0]);
+    expect(server.getHeadSequence()).toBe(head);
+
+    const different = itemPatch('reuse-id', 1, ['title', 'updatedAt'], { title: 'Title' }, { title: 'Different', updatedAt: 21 });
+    const result = push(server, [different]).results[0];
+    expect(result).toMatchObject({ kind: 'rejected', code: 'MUTATION_ID_REUSE' });
+    expect(server.getHeadSequence()).toBe(head);
+  });
+
+  it('enforces the frozen protocol-v1 wire contract', () => {
+    const server = new FakeSyncServer(ACCOUNT);
+    server.seedItem(note());
+
+    const invalidUuid = { ...itemPatch('valid-shape', 1, ['title'], { title: 'Title' }, { title: 'New' }), mutationId: 'm1' } as never;
+    expect(push(server, [invalidUuid]).results[0]).toMatchObject({ kind: 'rejected', code: 'MALFORMED_MUTATION' });
+
+    const invalidField = { ...itemPatch('invalid-field', 1, ['title'], { title: 'Title' }, { title: 'New' }), changedFields: ['bogus'], baseValues: { bogus: 1 }, newValues: { bogus: 2 } } as never;
+    expect(push(server, [invalidField]).results[0]).toMatchObject({ kind: 'rejected', code: 'MALFORMED_MUTATION' });
+
+    const invalidShape = { ...itemPatch('invalid-shape', 1, ['title'], { title: 'Title' }, { title: 'New' }), action: 'delete', changedFields: ['title'] } as never;
+    expect(push(server, [invalidShape]).results[0]).toMatchObject({ kind: 'rejected', code: 'MALFORMED_MUTATION' });
+
+    const controlId = { ...itemPatch('control-id', 1, ['title'], { title: 'Title' }, { title: 'New' }), entityId: 'item\u0001bad' } as never;
+    expect(push(server, [controlId]).results[0]).toMatchObject({ kind: 'rejected', code: 'MALFORMED_MUTATION' });
+
+    const longId = { ...itemPatch('long-id', 1, ['title'], { title: 'Title' }, { title: 'New' }), entityId: 'x'.repeat(129) } as never;
+    expect(push(server, [longId]).results[0]).toMatchObject({ kind: 'rejected', code: 'MALFORMED_MUTATION' });
+
+    const missingBase = { ...itemPatch('missing-base', 1, ['title'], { title: 'Title' }, { title: 'New' }), baseValues: {} } as never;
+    expect(push(server, [missingBase]).results[0]).toMatchObject({ kind: 'rejected', code: 'MALFORMED_MUTATION' });
+
+    const wrongMutationAccount = { ...itemPatch('wrong-mutation-account', 1, ['title'], { title: 'Title' }, { title: 'New' }), accountId: 'account-b' } as never;
+    expect(push(server, [wrongMutationAccount]).results[0]).toMatchObject({ kind: 'rejected', code: 'WRONG_ACCOUNT' });
+
+    const malformedOuter = server.push({ protocolVersion: SYNC_PROTOCOL_VERSION, accountId: ACCOUNT, mutations: [], extra: true } as never);
+    expect(malformedOuter).toMatchObject({ kind: 'error', code: 'MALFORMED_REQUEST' });
+  });
+
   it('rejects malformed mutations and wrong-account requests deterministically', () => {
     const server = new FakeSyncServer(ACCOUNT);
     server.seedItem(note());
@@ -316,6 +371,33 @@ describe('Phase 6A fake server mutation semantics', () => {
       'account-b',
     );
     expect(wrong).toMatchObject({ kind: 'error', code: 'WRONG_ACCOUNT' });
+  });
+});
+
+describe('Phase 6A transactional per-account head reference model', () => {
+  it('blocks a later writer and never exposes a future sequence before the lock holder commits', () => {
+    const head = new AccountHeadReferenceModel(100);
+    const t1 = head.tryBegin('T1');
+    expect(t1).toEqual({ kind: 'acquired', reservedSequence: 101 });
+    expect(head.getCommittedHead()).toBe(100);
+    expect(head.tryBegin('T2')).toEqual({ kind: 'blocked' });
+    expect(head.getCommittedHead()).toBe(100);
+
+    expect(head.commit('T1')).toBe(101);
+    expect(head.getCommittedHead()).toBe(101);
+    const t2 = head.tryBegin('T2');
+    expect(t2).toEqual({ kind: 'acquired', reservedSequence: 102 });
+    expect(head.getCommittedHead()).toBe(101);
+    expect(head.commit('T2')).toBe(102);
+  });
+
+  it('rollback exposes neither the reserved sequence nor a head gap', () => {
+    const head = new AccountHeadReferenceModel(7);
+    expect(head.tryBegin('T1')).toEqual({ kind: 'acquired', reservedSequence: 8 });
+    head.rollback('T1');
+    expect(head.getCommittedHead()).toBe(7);
+    expect(head.tryBegin('T2')).toEqual({ kind: 'acquired', reservedSequence: 8 });
+    expect(head.commit('T2')).toBe(8);
   });
 });
 
@@ -421,6 +503,29 @@ describe('Phase 6A bootstrap, pull and retention semantics', () => {
     if (second.kind !== 'page') throw new Error('pull failed');
     expect(second.hasMore).toBe(false);
     expect(second.nextAfterSequence).toBe(first.targetHeadSequence);
+  });
+
+  it('rejects continuation after bootstrap TTL expiry so no stale cursor can be installed', () => {
+    let now = 1000;
+    const server = new FakeSyncServer(ACCOUNT, { now: () => now, bootstrapTtlMs: 50 });
+    server.seedCollection(collection());
+    server.seedItem(note());
+    const first = server.bootstrap({ protocolVersion: SYNC_PROTOCOL_VERSION, accountId: ACCOUNT, pageSize: 1 });
+    expect(first.kind).toBe('page');
+    if (first.kind !== 'page' || first.nextAfterOrdinal === null) throw new Error('expected bootstrap continuation');
+    now = 1051;
+    const expired = server.bootstrap({
+      protocolVersion: SYNC_PROTOCOL_VERSION,
+      accountId: ACCOUNT,
+      pageSize: 1,
+      sessionId: first.sessionId,
+      afterOrdinal: first.nextAfterOrdinal,
+    });
+    expect(expired).toMatchObject({ kind: 'bootstrap_expired' });
+    const restarted = server.bootstrap({ protocolVersion: SYNC_PROTOCOL_VERSION, accountId: ACCOUNT, pageSize: 10 });
+    expect(restarted.kind).toBe('page');
+    if (restarted.kind !== 'page') throw new Error('restart failed');
+    expect(restarted.sessionId === first.sessionId).toBe(false);
   });
 
   it('returns rebootstrap_required when a cursor falls below retained change history', () => {

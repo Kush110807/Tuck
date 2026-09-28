@@ -15,7 +15,7 @@ Starting baseline: `813999a097b15a40d94fcbba8f4f14577d40261c`.
 7. Entity IDs are stable `TEXT` and identical local/cloud. No ID translation table is introduced.
 8. `updatedAt` remains domain/display/sort metadata. It is never a concurrency token.
 9. Local concurrency uses an opaque monotonically increasing `localRevision`. Cloud concurrency uses an independent integer entity `version`.
-10. Incremental server changes use a monotonically increasing sequence and client cursor.
+10. Incremental server changes use a monotonically increasing **per-account transactional** sequence/head and client cursor; PostgreSQL identity/nextval allocation is not the ordering authority.
 11. The local outbox stores high-level mutations, not only dirty snapshots.
 12. Every mutation has a UUID idempotency key. Protocol-v1 processed mutation records are retained for the account lifetime.
 13. Hard-deleted Items and Collections leave account-lifetime server tombstones.
@@ -60,7 +60,7 @@ Exact DDL: `local-schema-v3.sql`.
 ### Server sync metadata
 
 - entity `version`
-- global change `seq`
+- per-account transactional change `seq` / committed head
 - full immutable change payload
 - server processing time
 - originating device ID

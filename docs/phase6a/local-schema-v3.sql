@@ -5,9 +5,11 @@
 -- 1. Cross-device identity for image assets. image_path remains the device-local
 --    cache/source path used by the existing repository. asset_id is stable across devices.
 ALTER TABLE items ADD COLUMN asset_id TEXT;
-CREATE UNIQUE INDEX idx_items_asset_id
+CREATE INDEX idx_items_asset_id
   ON items(asset_id)
   WHERE asset_id IS NOT NULL;
+-- Ready Assets are immutable/reusable: multiple image Items may reference the
+-- same asset_id (for example an authored-content conflict copy).
 
 -- 2. One logical profile per physical SQLite database. Account profiles use a
 --    separate database/storage namespace from local-only and other accounts.
@@ -108,7 +110,6 @@ CREATE TABLE sync_local_tombstones (
 --    path means relative to cloud state and retry state.
 CREATE TABLE asset_sync_state (
   asset_id TEXT PRIMARY KEY NOT NULL,
-  item_id TEXT,
   local_state TEXT NOT NULL CHECK (
     local_state IN (
       'remote_known_not_downloaded',
@@ -132,9 +133,6 @@ CREATE TABLE asset_sync_state (
   remote_byte_size INTEGER CHECK (remote_byte_size IS NULL OR remote_byte_size >= 0),
   remote_cleanup_pending INTEGER NOT NULL DEFAULT 0 CHECK (remote_cleanup_pending IN (0, 1))
 );
-CREATE UNIQUE INDEX idx_asset_sync_item
-  ON asset_sync_state(item_id)
-  WHERE item_id IS NOT NULL;
 CREATE INDEX idx_asset_sync_upload
   ON asset_sync_state(upload_state, asset_id);
 CREATE INDEX idx_asset_sync_download

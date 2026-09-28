@@ -69,11 +69,11 @@ Storage policy must require the first path segment to equal the authenticated us
 
 ## Transaction authorization
 
-For `push_mutations`, ownership, base-version validation, canonical mutation, version increment, change-log append and processed-mutation insert are one server transaction. A result cannot report success unless all those effects committed together.
+For `push_mutations`, ownership, base-version validation, per-account head-row lock/allocation, canonical mutation, version increment, change-log append and processed-mutation insert are one server transaction. A result cannot report success unless all those effects committed together.
 
 For Collection delete, unfiling affected Items, their version/change entries, the Collection tombstone and Collection deletion are one transaction.
 
-For `bootstrap`, the snapshot session, captured head and materialized snapshot entries are created from one REPEATABLE READ view.
+For `bootstrap`, the snapshot session, committed account head and materialized snapshot entries are created from one REPEATABLE READ MVCC view. The head must be read from `private.account_sync_heads` in the same snapshot as canonical entity reads; it is never inferred from `max(sync_changes.seq)` or an identity sequence.
 
 ## Data privacy boundary
 

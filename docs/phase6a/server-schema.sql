@@ -12,6 +12,15 @@ CREATE TABLE public.accounts (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- Synchronisation ordering is account-scoped and transactional. Writers lock this
+-- one row for their account, allocate one or more consecutive change numbers,
+-- write entity/change/idempotency effects, and commit them together. No nextval/
+-- identity value is an ordering authority.
+CREATE TABLE private.account_sync_heads (
+  user_id uuid PRIMARY KEY REFERENCES public.accounts(user_id) ON DELETE CASCADE,
+  head_seq bigint NOT NULL DEFAULT 0 CHECK (head_seq >= 0)
+);
+
 CREATE TABLE public.assets (
   user_id uuid NOT NULL REFERENCES public.accounts(user_id) ON DELETE CASCADE,
   id text NOT NULL CHECK (length(id) BETWEEN 1 AND 128 AND id !~ '[[:cntrl:]]'),
@@ -71,6 +80,8 @@ CREATE INDEX idx_items_user_collection
   ON public.items(user_id, collection_id, archived, updated_at DESC, id ASC);
 CREATE INDEX idx_items_user_pinned
   ON public.items(user_id, archived, pinned, updated_at DESC, id ASC);
+CREATE INDEX idx_items_user_asset
+  ON public.items(user_id, asset_id) WHERE asset_id IS NOT NULL;
 
 CREATE TABLE public.item_tags (
   user_id uuid NOT NULL,
@@ -104,8 +115,8 @@ CREATE INDEX idx_tombstones_user_deleted_seq
 -- Every row carries the complete canonical payload at that sequence. Upserts
 -- therefore remain replayable even when the entity changes again later.
 CREATE TABLE private.sync_changes (
-  seq bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   user_id uuid NOT NULL REFERENCES public.accounts(user_id) ON DELETE CASCADE,
+  seq bigint NOT NULL CHECK (seq >= 1),
   entity_type text NOT NULL CHECK (entity_type IN ('item', 'collection', 'asset')),
   entity_id text NOT NULL CHECK (length(entity_id) BETWEEN 1 AND 128),
   entity_version bigint NOT NULL CHECK (entity_version >= 1),
@@ -114,10 +125,11 @@ CREATE TABLE private.sync_changes (
   mutation_id uuid,
   origin_device_id text NOT NULL CHECK (length(origin_device_id) BETWEEN 1 AND 128),
   server_at timestamptz NOT NULL DEFAULT now(),
-  retain_until timestamptz NOT NULL DEFAULT (now() + interval '90 days')
+  retain_until timestamptz NOT NULL DEFAULT (now() + interval '90 days'),
+  PRIMARY KEY (user_id, seq)
 );
-CREATE INDEX idx_sync_changes_user_seq
-  ON private.sync_changes(user_id, seq);
+-- (user_id, seq) is the cursor key. seq is allocated only by the locked
+-- private.account_sync_heads row inside the same writer transaction.
 CREATE INDEX idx_sync_changes_retention
   ON private.sync_changes(retain_until, user_id, seq);
 
@@ -183,3 +195,44 @@ REVOKE ALL ON SCHEMA private FROM PUBLIC, anon, authenticated;
 
 -- RPC function definitions and grants are intentionally specified, not deployed,
 -- in docs/phase6a/SECURITY.md and docs/phase6a/PROTOCOL.md.
+
+-- ============================================================================
+-- PHASE-6A TRANSACTIONAL ACCOUNT-HEAD ALLOCATION CONTRACT (SPECIFICATION ONLY)
+-- ============================================================================
+-- Account provisioning creates public.accounts + private.account_sync_heads in
+-- the same server transaction with head_seq = 0.
+--
+-- A synchronizable writer for authenticated user v_uid performs, in one DB
+-- transaction, the equivalent of:
+--
+--   -- first emitted change also obtains/holds the per-account row lock
+--   UPDATE private.account_sync_heads
+--      SET head_seq = head_seq + 1
+--    WHERE user_id = v_uid
+--    RETURNING head_seq INTO v_change_seq;
+--
+--   -- apply the canonical entity/version change
+--   -- INSERT private.sync_changes(user_id, seq, ...) VALUES (v_uid, v_change_seq, ...)
+--   -- insert/update tombstone(s) as applicable
+--   -- insert private.processed_mutations(...)
+--
+-- If one logical mutation emits multiple change rows (for example Collection
+-- deletion unfiling Items), repeat the UPDATE ... RETURNING while the SAME
+-- transaction continues to hold the row lock, producing consecutive account
+-- sequences. COMMIT exposes the entity effects, all sync_changes, processed
+-- result and final head together. ROLLBACK exposes none of them and restores the
+-- prior head. Another writer for the same user blocks on this row; another user
+-- locks a different row and proceeds independently.
+--
+-- bootstrap(): materialize session/head/entities in one PostgreSQL REPEATABLE
+-- READ transaction. The first account-head/entity reads must use the same MVCC
+-- snapshot. An uncommitted writer therefore contributes neither state nor head;
+-- a writer committed before that snapshot contributes both. A production RPC
+-- implementation must establish this isolation before its first data-bearing
+-- statement (or use an equivalently proven transaction wrapper).
+--
+-- pullChanges(): targetHead is read from private.account_sync_heads. Because a
+-- committed head N can only be exposed by the same transaction that committed
+-- every corresponding change <= N, and later same-account writers cannot obtain
+-- <= N, a client may safely advance to a finite captured targetHead after it has
+-- replayed all retained rows in (afterSequence, targetHead].
