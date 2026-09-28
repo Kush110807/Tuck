@@ -36,15 +36,25 @@ The supplemental TypeScript/runtime checks deliberately exclude React Native/Exp
 
 | Command | Result |
 |---|---|
-| `npm ci --ignore-scripts --no-audit --no-fund` | **BLOCKED** — registry transport/DNS stalled until the integration command timeout; no dependency tree was restored |
+| `npm ci --ignore-scripts --no-audit --no-fund` | **BLOCKED** — npm-registry DNS/transport access failed; the bounded online attempt reached the integration timeout with no usable dependency tree |
 | `npm ci --offline --ignore-scripts --no-audit --no-fund` | **BLOCKED**, exit `1` — `ENOTCACHED` for `https://registry.npmjs.org/zod/-/zod-3.25.76.tgz` |
-| `npm run typecheck` | **BLOCKED**, exit `2` — dependencies absent; missing `expo/tsconfig.base` and Node/React/React Native type definitions |
+| `npm run typecheck` | **BLOCKED**, exit `2` — dependencies absent; `expo/tsconfig.base` and Node/React/React Native type definitions cannot resolve |
 | `npm test` | **BLOCKED**, exit `127` — `vitest: not found` because dependency restore is blocked |
 | `npm run export:android` | **BLOCKED**, exit `127` — `expo: not found` because dependency restore is blocked |
-| `npx --offline expo install --check` | **BLOCKED**, exit `1` — Expo package is not present in npm cache (`ENOTCACHED`) |
+| `npx --offline expo install --check` | **BLOCKED**, exit `1` — Expo package metadata is not available to npm in offline cache (`ENOTCACHED`) |
 | `npx --offline expo-doctor` | **BLOCKED**, exit `1` — `expo-doctor` is not present in npm cache (`ENOTCACHED`) |
 
 These are environment/package-access blockers, not converted into passes or hidden by test/type stubs.
+
+## Dependency compatibility review
+
+A source-level compatibility review against Expo's current official documentation was completed even though the CLI compatibility command is blocked:
+
+- Expo SDK 57 maps to React Native `0.86`, React `19.2.3`, and Node `22.13.x` minimum; this project uses React Native `0.86.3`, React `19.2.3`, and was inspected under Node `22.16.0`.
+- Current Expo references recommend `expo-sqlite ~57.0.3`, `expo-file-system ~57.0.7`, and `expo-image-picker ~57.0.20`, matching this project's declared package lines and lockfile resolutions.
+- Expo's APK documentation confirms an EAS profile with `distribution: "internal"` and/or `android.buildType: "apk"` is an installable APK route; this repository's `preview` profile uses both.
+
+This review is **not** a substitute for `npx expo install --check` / Expo Doctor against an installed dependency tree.
 
 ## Android/build evidence
 

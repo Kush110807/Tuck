@@ -29,19 +29,19 @@ npx expo-doctor
 
 Observed in this integration environment:
 
-- `npm ci --ignore-scripts --no-audit --no-fund` — **BLOCKED**: npm registry transport/DNS access timed out.
-- `npm ci --offline --ignore-scripts --no-audit --no-fund` — **BLOCKED**: required lockfile tarball `zod-3.25.76.tgz` is not cached (`ENOTCACHED`).
+- `npm ci --ignore-scripts --no-audit --no-fund` — **BLOCKED**: npm-registry DNS/transport access failed; the bounded online attempt timed out without restoring a usable dependency tree.
+- `npm ci --offline --ignore-scripts --no-audit --no-fund` — **BLOCKED**, exit `1`: required lockfile tarball `zod-3.25.76.tgz` is not cached (`ENOTCACHED`).
 - `npm run typecheck` — **BLOCKED by dependency restore**: local dependency tree is absent/incomplete, so Expo config and React/React Native/Node typings cannot resolve. This is not a source pass.
-- `npm test` — must be rerun after install; Vitest is not locally installed.
-- `npm run export:android` — must be rerun after install; local Expo CLI is unavailable.
-- `npx expo install --check` — **BLOCKED** until install/network access is restored.
+- `npm test` — **BLOCKED**, exit `127`: `vitest: not found` because the dependency tree is absent.
+- `npm run export:android` — **BLOCKED**, exit `127`: `expo: not found` because the dependency tree is absent.
+- `npx --offline expo install --check` — **BLOCKED**, exit `1`: npm reports `ENOTCACHED` for Expo.
 - `npx --offline expo-doctor` — **BLOCKED**, exit `1`; `expo-doctor` is not present in the npm cache (`ENOTCACHED`).
 
 A separate strict TypeScript check over the contracts, domain code, and core controllers using the system `tsc` passed without weakening production contracts or adding source stubs. It is supplemental evidence only and does not replace the canonical project check.
 
 ## Compatibility review
 
-The lockfile/application pins Expo SDK 57-era versions: Expo `~57.0.25`, React Native `0.86.3`, React `19.2.3`, `expo-sqlite ~57.0.3`, `expo-file-system ~57.0.7`, and `expo-image-picker ~57.0.20`. Official Expo SDK 57 documentation/changelog should be rechecked with `npx expo install --check` once package access is restored; source integration did not change native dependency versions.
+The lockfile/application pins Expo `~57.0.25`, React Native `0.86.3`, React `19.2.3`, `expo-sqlite ~57.0.3`, `expo-file-system ~57.0.7`, and `expo-image-picker ~57.0.20`. Expo's current SDK reference maps SDK 57 to React Native 0.86 / React 19.2.3 with Node 22.13.x minimum. Current Expo SQLite, FileSystem, and ImagePicker references recommend `~57.0.3`, `~57.0.7`, and `~57.0.20` respectively, matching this project's package lines. This source-level review is **PASSED**; the installed-tree `npx expo install --check` remains **BLOCKED** and must still be rerun.
 
 ## Development-phone route
 

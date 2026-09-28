@@ -18,16 +18,16 @@ Status vocabulary:
 | Production imports exclude preview/test fixtures | **PASSED** — final source scan before packaging found none |
 | Supplemental strict TypeScript: contracts/domain/core controllers, no source stubs | **PASSED** |
 | Supplemental runtime smoke: normalization + explicit conflict decision + cross-list revisit freshness | **PASSED** |
-| `npm ci` from lockfile | **BLOCKED** — npm registry transport/DNS unavailable; offline cache empty |
+| `npm ci` from lockfile | **BLOCKED** — registry DNS/transport access failed and bounded online install timed out; offline install is `ENOTCACHED` for required tarballs |
 | `npm run typecheck` with installed project dependencies | **BLOCKED** by dependency install |
 | `npm test` including committed C + Phase 2 tests | **BLOCKED** by dependency install |
 | `npm run export:android` | **BLOCKED** by dependency install / local Expo CLI unavailable |
-| `npx expo install --check` / Expo Doctor | **BLOCKED** until package/network access is restored |
+| `npx expo install --check` / Expo Doctor | **BLOCKED** — installed tree/cache unavailable; offline commands return `ENOTCACHED` |
 | Android native launch | **NOT RUN** |
 | APK build/install | **NOT RUN** |
 | Physical-phone matrix | **NOT RUN** |
 
-Committed tests cover boot retry, list image states, stale search protection, one-shot mailbox behavior, dirty/discard, picker cancel/select, duplicate Save, explicit edit-conflict overwrite decision, missing edit/image states, archive/delete pending guards and conflicts, link-open failures, adapter mappings, domain trimming/normalization, a Phase 2 archive/restore cross-list refresh flow, queued-cleanup resilience, replacement rollback, and image delete/replacement ordering.
+Committed tests cover boot retry, list image states, stale search protection, one-shot mailbox behavior, dirty/discard, picker cancel/select, duplicate Save, explicit edit-conflict overwrite decision, missing edit/image states, archive/delete pending guards and conflicts, link-open failures, adapter mappings, domain trimming/normalization including Unicode limits, a Phase 2 archive/restore cross-list refresh flow, queued-cleanup resilience, replacement rollback, and image delete/replacement ordering. The new Vitest files are committed source coverage but remain **NOT EXECUTED under Vitest** until dependency restore succeeds.
 
 ## Physical Android phone setup
 

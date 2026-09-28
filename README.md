@@ -24,7 +24,7 @@ See [docs/architecture.md](docs/architecture.md) and [docs/CONTRACT_RULES.md](do
 
 ## Pinned runtime
 
-The lockfile pins the integrated Expo SDK 57 stack, including Expo `~57.0.25`, React Native `0.86.3`, React `19.2.3`, SQLite `~57.0.3`, FileSystem `~57.0.7`, and ImagePicker `~57.0.20`.
+The lockfile pins the integrated Expo SDK 57 stack, including Expo `~57.0.25`, React Native `0.86.3`, React `19.2.3`, SQLite `~57.0.3`, FileSystem `~57.0.7`, and ImagePicker `~57.0.20`. Expo's current SDK reference maps SDK 57 to React Native 0.86 / React 19.2.3 with Node 22.13.x minimum, and its current SQLite, FileSystem, and ImagePicker references recommend the exact `~57.0.3`, `~57.0.7`, and `~57.0.20` package lines used here.
 
 Use Node **22.13 or newer** for Expo SDK 57. The current integration environment used Node `22.16.0` and npm `10.9.2`.
 
@@ -47,7 +47,7 @@ As of 28 September 2026 in the integration environment:
 - Baseline commit `1af6a69f6638e3c2fd26319efd253084e24760e0` was verified before integration.
 - A, B, and C were integrated as separate commits before master integration fixes.
 - A strict TypeScript check of the contracts/domain/core controllers using the system TypeScript compiler passed without production typing stubs.
-- `npm ci` is currently **BLOCKED** by npm-registry network/DNS access; offline install is **BLOCKED** because the lockfile tarballs are not cached.
+- `npm ci` is currently **BLOCKED** by npm-registry DNS/transport failure; the bounded online attempt timed out without restoring dependencies, and offline install is **BLOCKED** because required tarballs such as `zod-3.25.76.tgz` are not cached.
 - Therefore canonical `npm run typecheck`, `npm test`, Expo dependency checks, and `npm run export:android` cannot be treated as passed until dependencies install successfully.
 - Android native launch, APK build, and physical-phone testing are **NOT RUN**.
 
