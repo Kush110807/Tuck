@@ -3,15 +3,7 @@ import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { ItemCardProps, SavedItem } from '../../contracts';
 import { colors, minimumTouchSize, radii, space } from '../../theme/tokens';
 import { AppIcon, type AppIconName } from './AppIcon';
-import { getImagePresentation } from './imagePresentation';
-import { formatRelativeTime } from './itemCardModel';
-function itemPreview(item: SavedItem): string {
-  if (item.type === 'note') return item.body;
-  if (item.type === 'link') return item.url;
-  return item.body ?? 'Saved image';
-}
-
-const typeLabels = { note: 'Note', link: 'Link', image: 'Image' } as const;
+import { getItemCardPresentation } from './itemCardModel';
 const typeIcons: Record<SavedItem['type'], AppIconName> = { note: 'note', link: 'link', image: 'image' };
 
 
@@ -20,14 +12,12 @@ export function ItemCard({ row, onPress }: ItemCardProps) {
   const uri = row.image.kind === 'available' ? row.image.uri : null;
   const [renderFailed, setRenderFailed] = useState(false);
   useEffect(() => setRenderFailed(false), [uri]);
-  const imagePresentation = getImagePresentation(row.image, renderFailed);
-  const visibleTags = item.tags.slice(0, 2);
-  const remainingTags = Math.max(0, item.tags.length - visibleTags.length);
+  const presentation = getItemCardPresentation(row, renderFailed);
 
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${typeLabels[item.type]}: ${item.title}`}
+      accessibilityLabel={presentation.accessibilityLabel}
       accessibilityHint="Opens item details"
       onPress={onPress}
       style={({ pressed }) => [styles.card, pressed && styles.pressed]}
@@ -36,32 +26,32 @@ export function ItemCard({ row, onPress }: ItemCardProps) {
         <View style={styles.content}>
           <View style={styles.eyebrowRow}>
             <AppIcon name={typeIcons[item.type]} size={15} color={colors.primary} />
-            <Text style={styles.type}>{typeLabels[item.type]}</Text>
+            <Text style={styles.type}>{presentation.typeLabel}</Text>
             {item.archived ? <Text style={styles.archived}>Archived</Text> : null}
             <Text style={styles.dot}>•</Text>
-            <Text style={styles.time}>{formatRelativeTime(item.updatedAt)}</Text>
+            <Text style={styles.time}>{presentation.relativeTime}</Text>
           </View>
           <Text style={styles.title}>{item.title}</Text>
-          <Text numberOfLines={2} style={styles.preview}>{itemPreview(item)}</Text>
+          <Text numberOfLines={2} style={styles.preview}>{presentation.preview}</Text>
           {item.tags.length > 0 ? (
             <View style={styles.tags} accessibilityLabel={`Tags: ${item.tags.join(', ')}`}>
-              {visibleTags.map(tag => <Text key={tag.toLowerCase()} style={styles.tag}>#{tag}</Text>)}
-              {remainingTags > 0 ? <Text style={styles.moreTags}>+{remainingTags}</Text> : null}
+              {presentation.visibleTags.map(tag => <Text key={tag.toLowerCase()} style={styles.tag}>#{tag}</Text>)}
+              {presentation.remainingTags > 0 ? <Text style={styles.moreTags}>+{presentation.remainingTags}</Text> : null}
             </View>
           ) : null}
         </View>
 
-        {item.type === 'image' ? (
-          imagePresentation.kind === 'image' ? (
+        {item.type === 'image' && presentation.image ? (
+          presentation.image.kind === 'image' ? (
             <Image
-              source={{ uri: imagePresentation.uri }}
+              source={{ uri: presentation.image.uri }}
               resizeMode="cover"
               accessibilityLabel={`${item.title} preview`}
               onError={() => setRenderFailed(true)}
               style={styles.thumbnail}
             />
           ) : (
-            <View style={styles.thumbnailFallback} accessibilityLabel={imagePresentation.title}>
+            <View style={styles.thumbnailFallback} accessibilityLabel={presentation.image.title}>
               <AppIcon name="image" size={24} color={colors.tertiaryText} />
             </View>
           )

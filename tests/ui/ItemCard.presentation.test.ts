@@ -1,16 +1,71 @@
 import { describe, expect, it } from 'vitest';
-import { formatRelativeTime } from '../../src/ui/components/itemCardModel';
+import type { ItemListRow, SavedItem } from '../../src/contracts';
+import { getItemCardPresentation } from '../../src/ui/components/itemCardModel';
 
-describe('compact ItemCard time presentation', () => {
-  const now = 2_000_000_000_000;
+const now = 2_000_000_000_000;
 
-  it.each([
-    [now - 15_000, 'now'],
-    [now - 5 * 60_000, '5m'],
-    [now - 3 * 60 * 60_000, '3h'],
-    [now - 2 * 24 * 60 * 60_000, '2d'],
-    [now - 14 * 24 * 60 * 60_000, '2w'],
-  ])('formats %s as %s', (timestamp, expected) => {
-    expect(formatRelativeTime(timestamp, now)).toBe(expected);
+function imageItem(overrides: Partial<SavedItem> = {}): SavedItem {
+  return {
+    id: 'image-1',
+    type: 'image',
+    title: 'Reference image',
+    body: 'Warm counter layout',
+    url: null,
+    imagePath: 'images/reference.png',
+    tags: ['Design', 'Cafe', 'Lighting', 'Mumbai'],
+    createdAt: now - 10_000,
+    updatedAt: now - 5 * 60_000,
+    archived: false,
+    ...overrides,
+  } as SavedItem;
+}
+
+describe('compact ItemCard presentation model', () => {
+  it('uses a compact image thumbnail model and truncates visible tags with a +N count', () => {
+    const row: ItemListRow = {
+      item: imageItem(),
+      image: { kind: 'available', uri: 'file:///reference.png' },
+    };
+
+    const presentation = getItemCardPresentation(row, false, now);
+
+    expect(presentation.image).toEqual({ kind: 'image', uri: 'file:///reference.png' });
+    expect(presentation.visibleTags).toEqual(['Design', 'Cafe']);
+    expect(presentation.remainingTags).toBe(2);
+    expect(presentation.relativeTime).toBe('5m');
+  });
+
+  it('keeps semantic item metadata when the backing image is missing', () => {
+    const row: ItemListRow = {
+      item: imageItem(),
+      image: { kind: 'missing' },
+    };
+
+    const presentation = getItemCardPresentation(row, false, now);
+
+    expect(presentation.typeLabel).toBe('Image');
+    expect(presentation.preview).toBe('Warm counter layout');
+    expect(presentation.visibleTags).toEqual(['Design', 'Cafe']);
+    expect(presentation.remainingTags).toBe(2);
+    expect(presentation.image).toMatchObject({
+      kind: 'fallback',
+      reason: 'missing',
+      title: 'Image file missing',
+    });
+    expect(presentation.accessibilityLabel).toContain('Image: Reference image');
+    expect(presentation.accessibilityLabel).toContain('Image file missing');
+    expect(presentation.accessibilityLabel).toContain('Tags: Design, Cafe, Lighting, Mumbai');
+  });
+
+  it('includes archived status in the accessible card label without removing content', () => {
+    const row: ItemListRow = {
+      item: imageItem({ archived: true }),
+      image: { kind: 'missing' },
+    };
+
+    const presentation = getItemCardPresentation(row, false, now);
+
+    expect(presentation.accessibilityLabel).toContain('Archived');
+    expect(presentation.accessibilityLabel).toContain('Reference image');
   });
 });
