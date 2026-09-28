@@ -43,11 +43,11 @@ It covers:
 - same-account rollback proving an uncommitted sequence/result does not survive;
 - different accounts not serializing on one global lock;
 - same-ID/same-payload replay and same-ID/different-payload rejection;
-- wrong-account RPC rejection;
+- malformed outer request rejection, wrong-account RPC rejection and wrong-user entity-ID non-enumeration;
 - bootstrap during an uncommitted writer (old head + old entity), then catch-up pull;
 - bootstrap after a committed writer (new head + new entity);
 - disjoint stale-base merge, authored same-field conflict and version advancement;
-- Collection delete rollback/atomic commit, Item unfiling/version bump while preserving `updatedAt`, lifetime tombstone and stale ID resurrection prevention;
+- Item hard-delete tombstone/resurrection prevention plus Collection delete rollback/atomic commit, Item unfiling/version bump while preserving `updatedAt`, Collection lifetime tombstone and stale ID resurrection prevention;
 - one ready Asset referenced by multiple Items;
 - finite pull target, deterministic pagination and stale cursor -> `rebootstrap_required`.
 

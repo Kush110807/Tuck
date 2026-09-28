@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(20);
+select plan(21);
 
 select has_table('public', 'accounts', 'accounts exists');
 select has_table('private', 'account_sync_heads', 'per-account head exists');
@@ -26,6 +26,11 @@ select ok((select relrowsecurity from pg_class c join pg_namespace n on n.oid=c.
 select ok((select relrowsecurity from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname='collections'), 'collections RLS enabled');
 select ok((select relrowsecurity from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname='assets'), 'assets RLS enabled');
 select ok((select public is false from storage.buckets where id='tuck-assets'), 'asset bucket is private');
+select ok(exists (
+  select 1 from pg_policies
+  where schemaname='storage' and tablename='objects' and policyname='tuck_assets_insert_own'
+    and with_check like '%auth.uid()%'
+), 'Storage insert policy is tied to authenticated user prefix');
 select has_column('public', 'accounts', 'change_retention_floor_seq', 'retention floor is explicit');
 
 select * from finish();

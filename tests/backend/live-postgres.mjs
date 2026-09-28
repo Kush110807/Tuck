@@ -86,6 +86,14 @@ function deleteCollectionMutation(accountId, mutationId, collectionId, baseServe
   };
 }
 
+function deleteItemMutation(accountId, mutationId, itemId, baseServerVersion) {
+  return {
+    protocolVersion: 1, accountId, mutationId, originDeviceId: 'phase6b-live-test',
+    entityType: 'item', entityId: itemId, action: 'delete', baseServerVersion,
+    changedFields: [], baseValues: {}, newValues: {},
+  };
+}
+
 function privateMutationSql(userId, mutation, tail = 'COMMIT') {
   return `BEGIN; SELECT private.process_mutation_v1(${q(userId)}::uuid, ${q(JSON.stringify(mutation))}::jsonb); ${tail};`;
 }
@@ -167,6 +175,14 @@ function idempotencyAndWrongAccount() {
 
   const wrong = JSON.parse(run(rpcSql(USER_A, 'tuck_pull_changes', { protocolVersion: 1, accountId: USER_B, afterSequence: 0, limit: 10 })));
   assert(wrong.code === 'WRONG_ACCOUNT', 'RPC caller cannot act as a different account');
+  const malformed = JSON.parse(run(rpcSql(USER_A, 'tuck_push_mutations', {})));
+  assert(malformed.code === 'MALFORMED_REQUEST', 'malformed outer request must be rejected deterministically');
+
+  run(privateMutationSql(USER_B, createItemMutation(USER_B, '20000000-0000-4000-8000-000000000030', 'owned-by-b')));
+  const crossUserDelete = deleteItemMutation(USER_A, '20000000-0000-4000-8000-000000000031', 'owned-by-b', 1);
+  const hidden = JSON.parse(run(privateMutationSql(USER_A, crossUserDelete)));
+  assert(hidden.code === 'NOT_FOUND', 'wrong-user entity ID must not reveal or mutate the other account row');
+  assert(run(`SELECT count(*) FROM public.items WHERE user_id=${q(USER_B)}::uuid AND id='owned-by-b'`) === '1', 'wrong-user entity attempt must leave owner B data unchanged');
 }
 
 async function bootstrapRaceAndCatchup() {
@@ -225,7 +241,11 @@ function mergeVersioningAndCollectionDelete() {
   assert(filed.kind === 'accepted', 'fixture Item must be filed through the protocol before Collection delete');
   const before = run(`SELECT updated_at||':'||version FROM public.items WHERE user_id=${q(USER_A)}::uuid AND id=${q(itemId)}`);
   const del = deleteCollectionMutation(USER_A, '20000000-0000-4000-8000-000000000025', collectionId, 1);
+  const preDeleteHead = run(`SELECT head_seq FROM private.account_sync_heads WHERE user_id=${q(USER_A)}::uuid`);
+  const preDeleteChanges = run(`SELECT count(*) FROM private.sync_changes WHERE user_id=${q(USER_A)}::uuid`);
   run(privateMutationSql(USER_A, del, 'ROLLBACK'));
+  assert(run(`SELECT head_seq FROM private.account_sync_heads WHERE user_id=${q(USER_A)}::uuid`) === preDeleteHead, 'rolled-back Collection delete must not advance committed head');
+  assert(run(`SELECT count(*) FROM private.sync_changes WHERE user_id=${q(USER_A)}::uuid`) === preDeleteChanges, 'rolled-back Collection delete must leave no partial changes');
   assert(run(`SELECT count(*) FROM public.collections WHERE user_id=${q(USER_A)}::uuid AND id=${q(collectionId)}`) === '1', 'rolled-back collection delete must preserve collection');
   assert(run(`SELECT collection_id FROM public.items WHERE user_id=${q(USER_A)}::uuid AND id=${q(itemId)}`) === collectionId, 'rolled-back collection delete must preserve filing');
   assert(run(`SELECT count(*) FROM private.entity_tombstones WHERE user_id=${q(USER_A)}::uuid AND entity_type='collection' AND entity_id=${q(collectionId)}`) === '0', 'rolled-back delete must leave no tombstone');
@@ -240,6 +260,13 @@ function mergeVersioningAndCollectionDelete() {
 
   const staleRecreate = JSON.parse(run(privateMutationSql(USER_A, createCollectionMutation(USER_A, '20000000-0000-4000-8000-000000000026', collectionId, 'Recreate'))));
   assert(staleRecreate.code === 'ENTITY_ID_REUSED_AFTER_DELETE', 'collection tombstone must prevent stale resurrection/reuse');
+
+  run(privateMutationSql(USER_A, createItemMutation(USER_A, '20000000-0000-4000-8000-000000000032', 'delete-item')));
+  const itemDelete = JSON.parse(run(privateMutationSql(USER_A, deleteItemMutation(USER_A, '20000000-0000-4000-8000-000000000033', 'delete-item', 1))));
+  assert(itemDelete.kind === 'accepted' && itemDelete.changed === true, 'Item hard delete must be accepted at exact version');
+  assert(run(`SELECT count(*) FROM private.entity_tombstones WHERE user_id=${q(USER_A)}::uuid AND entity_type='item' AND entity_id='delete-item'`) === '1', 'Item hard delete must create account-lifetime tombstone');
+  const itemRecreate = JSON.parse(run(privateMutationSql(USER_A, createItemMutation(USER_A, '20000000-0000-4000-8000-000000000034', 'delete-item'))));
+  assert(itemRecreate.code === 'ENTITY_ID_REUSED_AFTER_DELETE', 'Item tombstone must prevent stale resurrection/reuse');
 }
 
 function sharedReadyAssetReferences() {
@@ -258,14 +285,38 @@ function sharedReadyAssetReferences() {
   assert(run(`SELECT count(*) FROM public.items WHERE user_id=${q(USER_A)}::uuid AND asset_id='asset-shared'`) === '2', 'shared Asset must have two live Item references without duplication');
 }
 
+function bootstrapPaginationExpiryImmutability() {
+  resetUsers();
+  run(privateMutationSql(USER_A, createItemMutation(USER_A, '20000000-0000-4000-8000-000000000035', 'boot-a')));
+  run(privateMutationSql(USER_A, createItemMutation(USER_A, '20000000-0000-4000-8000-000000000036', 'boot-b')));
+  const request = { protocolVersion: 1, accountId: USER_A, pageSize: 1 };
+  const first = JSON.parse(run(rpcSql(USER_A, 'tuck_bootstrap', request)));
+  assert(first.kind === 'page' && first.snapshotHeadSequence === 2 && first.entries.length === 1 && first.nextAfterOrdinal !== null, 'bootstrap first page must materialize a finite immutable snapshot');
+
+  run(privateMutationSql(USER_A, createItemMutation(USER_A, '20000000-0000-4000-8000-000000000037', 'boot-after-snapshot')));
+  const continuation = JSON.parse(run(rpcSql(USER_A, 'tuck_bootstrap', { ...request, sessionId: first.sessionId, afterOrdinal: first.nextAfterOrdinal })));
+  assert(continuation.snapshotHeadSequence === 2, 'bootstrap continuation must retain original snapshot head');
+  assert(!continuation.entries.some(entry => entry.snapshot.entity.id === 'boot-after-snapshot'), 'immutable bootstrap session must not absorb later entities');
+
+  run(`UPDATE private.bootstrap_sessions SET expires_at=now()-interval '1 second' WHERE id=${q(first.sessionId)}::uuid AND user_id=${q(USER_A)}::uuid;`);
+  const expired = JSON.parse(run(rpcSql(USER_A, 'tuck_bootstrap', { ...request, sessionId: first.sessionId, afterOrdinal: first.nextAfterOrdinal })));
+  assert(expired.kind === 'bootstrap_expired', 'expired bootstrap continuation must require restart');
+
+  const catchup = JSON.parse(run(rpcSql(USER_A, 'tuck_pull_changes', { protocolVersion: 1, accountId: USER_A, afterSequence: 2, limit: 10 })));
+  assert(catchup.changes.some(change => change.entityId === 'boot-after-snapshot'), 'post-snapshot mutation must remain available to catch-up pull');
+}
+
 function pullRetentionAndPagination() {
   resetUsers();
   for (let i = 0; i < 3; i += 1) {
     const suffix = String(10 + i).padStart(12, '0');
     run(privateMutationSql(USER_A, createItemMutation(USER_A, `20000000-0000-4000-8000-${suffix}`, `page-${i}`)));
   }
-  const first = JSON.parse(run(rpcSql(USER_A, 'tuck_pull_changes', { protocolVersion: 1, accountId: USER_A, afterSequence: 0, limit: 1 })));
+  const pullRequest = { protocolVersion: 1, accountId: USER_A, afterSequence: 0, limit: 1 };
+  const first = JSON.parse(run(rpcSql(USER_A, 'tuck_pull_changes', pullRequest)));
   assert(first.targetHeadSequence === 3 && first.changes.length === 1 && first.hasMore === true, 'first pull page must capture finite head 3');
+  const repeated = JSON.parse(run(rpcSql(USER_A, 'tuck_pull_changes', pullRequest)));
+  assert(JSON.stringify(repeated) === JSON.stringify(first), 'repeated pull against unchanged committed state must be deterministic');
   const second = JSON.parse(run(rpcSql(USER_A, 'tuck_pull_changes', { protocolVersion: 1, accountId: USER_A, afterSequence: first.nextAfterSequence, limit: 10, targetHeadSequence: first.targetHeadSequence })));
   assert(second.changes.length === 2 && second.nextAfterSequence === 3 && second.hasMore === false, 'continued pull must finish captured target');
   run(`UPDATE public.accounts SET change_retention_floor_seq=3 WHERE user_id=${q(USER_A)}::uuid;`);
@@ -284,6 +335,8 @@ try {
   console.log('PASS idempotency + wrong-account RPC security');
   await bootstrapRaceAndCatchup();
   console.log('PASS bootstrap MVCC race + catch-up');
+  bootstrapPaginationExpiryImmutability();
+  console.log('PASS bootstrap immutable pagination + expiry + catch-up');
   mergeVersioningAndCollectionDelete();
   console.log('PASS merge/versioning + atomic Collection delete/rollback + tombstone');
   sharedReadyAssetReferences();
