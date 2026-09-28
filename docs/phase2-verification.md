@@ -28,7 +28,7 @@ Date: 28 September 2026.
 | UI scan for direct persistence/picker/browser/navigation APIs | **PASSED** |
 | Package vs lockfile dependency/devDependency versions | **PASSED** — exact root maps match; no dependency version changed in Phase 2 |
 | Strict platform-neutral TypeScript check of contracts/domain/core controllers with `types: []` | **PASSED** |
-| Supplemental runtime smoke: normalization + explicit conflict decision + cross-list revisit freshness | **PASSED** |
+| Supplemental runtime smoke | **PASSED — 5/5**: trim/normalization; query normalization; explicit conflict overwrite; Unicode tag-length consistency; archive cross-list refresh/mailbox |
 
 The supplemental TypeScript/runtime checks deliberately exclude React Native/Expo-dependent modules. They do not replace the canonical project checks below.
 
@@ -36,7 +36,7 @@ The supplemental TypeScript/runtime checks deliberately exclude React Native/Exp
 
 | Command | Result |
 |---|---|
-| `npm ci --ignore-scripts --no-audit --no-fund` | **BLOCKED** — npm-registry DNS/transport access failed; the bounded online attempt reached the integration timeout with no usable dependency tree |
+| `npm ci --ignore-scripts --no-audit --no-fund` | **BLOCKED** — registry tarball fetches failed with `EAI_AGAIN` (including `zod`, `yargs`, `yaml` and others); the final bounded retry also reached the integration timeout with no usable dependency tree |
 | `npm ci --offline --ignore-scripts --no-audit --no-fund` | **BLOCKED**, exit `1` — `ENOTCACHED` for `https://registry.npmjs.org/zod/-/zod-3.25.76.tgz` |
 | `npm run typecheck` | **BLOCKED**, exit `2` — dependencies absent; `expo/tsconfig.base` and Node/React/React Native type definitions cannot resolve |
 | `npm test` | **BLOCKED**, exit `127` — `vitest: not found` because dependency restore is blocked |
