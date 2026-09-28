@@ -1,22 +1,59 @@
-# Phase 2 build and verification record
+# Phase 4 build and verification record
 
-This document records what is and is not proven for the integrated candidate. A JavaScript export, TypeScript pass, unit test pass, native build, APK install, and phone journey are separate gates.
+**Candidate classification:** repaired candidate — verification incomplete.
+
+This document distinguishes source/mock evidence from dependency-backed Expo checks and from installed Android evidence.
 
 ## Environment inspected on 28 September 2026
 
 - Node: `v22.16.0`
 - npm: `10.9.2`
-- Git: `2.47.3`
-- Java: OpenJDK `21.0.11`
-- `adb`: not found
-- standalone `gradle`: not found
-- EAS CLI: not installed; offline `npx` retrieval is `ENOTCACHED`
-- local Android SDK environment variables/common SDK directories: not found
-- physical Android phone: user confirms one is available; model, Android version, and test results are still pending
+- system TypeScript available: `5.8.3`
+- Java available
+- `adb`: not available in this environment
+- local Android SDK/standalone Gradle: not available
+- EAS CLI/authenticated build access: not available here
+- physical Android phone: user confirms availability; model/Android version/build identity/results remain pending
 
-## Dependency-backed verification
+## Clean dependency attempt
 
-Required fresh-checkout sequence:
+One bounded online `npm ci --ignore-scripts --no-audit --no-fund` attempt was made after repairs. The container transport timed out before npm could complete and no usable `node_modules` tree was restored. The same online attempt was not repeated.
+
+One offline lockfile install was then attempted and failed with `ENOTCACHED` for `https://registry.npmjs.org/zod/-/zod-3.25.76.tgz`.
+
+Accordingly:
+
+| Command | Phase 4 result |
+|---|---|
+| `npm ci` | **BLOCKED** — environment transport/package access |
+| `npm ci --offline --ignore-scripts --no-audit --no-fund` | **BLOCKED**, exit 1 — `zod-3.25.76.tgz` not cached |
+| `npm run typecheck` | **BLOCKED**, exit 2 — installed Expo/React/RN/Node typings/config absent after blocked install |
+| `npm test` | **BLOCKED**, exit 127 — `vitest: not found` |
+| `npm run export:android` | **BLOCKED**, exit 127 — `expo: not found` |
+| `npx --offline expo install --check` | **BLOCKED**, exit 1 — Expo package not cached |
+
+These blockers are not classified as application failures and are not replaced by production typing stubs.
+
+## Supplemental repair verification
+
+Without modifying production typings or dependencies, Phase 4 separately executed:
+
+- dependency-free strict TypeScript over production contracts/domain/core controllers — **PASS**;
+- syntax transpilation of all changed TypeScript/TSX files with the real system TypeScript compiler — **PASS**;
+- repaired controller scenarios — **PASS 10/10**;
+- `SQLiteItemRepository` startup-boundary scenarios against the actual repaired repository source with mocked Expo DB/filesystem boundary — **PASS 3/3**;
+- `PersistentImageStore` validation scenarios against the actual repaired source with mocked Expo filesystem/native decoder boundary — **PASS 7/7**;
+- repaired ImagePicker adapter scenarios — **PASS 3/3**;
+- pure stored-image presentation recovery scenarios — **PASS 2/2**;
+- mocked repository image copy/replace/delete ordering scenarios — **PASS 4/4**.
+
+These are source/mock-layer evidence only. They do not prove Expo SQLite/FileSystem/ImagePicker behavior on Android and do not replace `npm test`.
+
+## APK route
+
+`eas.json` retains the internal APK profile. No APK was built here because package/EAS access and local Android build tooling are unavailable.
+
+On an authorized machine/account:
 
 ```bash
 npm ci
@@ -24,72 +61,29 @@ npm run typecheck
 npm test
 npm run export:android
 npx expo install --check
-npx expo-doctor
-```
-
-Observed in this integration environment:
-
-- `npm ci --ignore-scripts --no-audit --no-fund` — **BLOCKED**: npm-registry DNS/transport access failed; the bounded online attempt timed out without restoring a usable dependency tree.
-- `npm ci --offline --ignore-scripts --no-audit --no-fund` — **BLOCKED**, exit `1`: required lockfile tarball `zod-3.25.76.tgz` is not cached (`ENOTCACHED`).
-- `npm run typecheck` — **BLOCKED by dependency restore**: local dependency tree is absent/incomplete, so Expo config and React/React Native/Node typings cannot resolve. This is not a source pass.
-- `npm test` — **BLOCKED**, exit `127`: `vitest: not found` because the dependency tree is absent.
-- `npm run export:android` — **BLOCKED**, exit `127`: `expo: not found` because the dependency tree is absent.
-- `npx --offline expo install --check` — **BLOCKED**, exit `1`: npm reports `ENOTCACHED` for Expo.
-- `npx --offline expo-doctor` — **BLOCKED**, exit `1`; `expo-doctor` is not present in the npm cache (`ENOTCACHED`).
-- `npx --offline eas-cli --version` — **BLOCKED**, exit `1`; `eas-cli` is not present in the npm cache (`ENOTCACHED`).
-
-A separate strict TypeScript check over the contracts, domain code, and core controllers using the system `tsc` passed without weakening production contracts or adding source stubs. It is supplemental evidence only and does not replace the canonical project check.
-
-## Compatibility review
-
-The lockfile/application pins Expo `~57.0.25`, React Native `0.86.3`, React `19.2.3`, `expo-sqlite ~57.0.3`, `expo-file-system ~57.0.7`, and `expo-image-picker ~57.0.20`. Expo's current SDK reference maps SDK 57 to React Native 0.86 / React 19.2.3 with Node 22.13.x minimum. Current Expo SQLite, FileSystem, and ImagePicker references recommend `~57.0.3`, `~57.0.7`, and `~57.0.20` respectively, matching this project's package lines. This source-level review is **PASSED**; the installed-tree `npx expo install --check` remains **BLOCKED** and must still be rerun.
-
-## Development-phone route
-
-Once dependencies install:
-
-```bash
-npm start
-```
-
-Use an SDK-57-compatible Expo development client/Expo Go path supported on the phone and host, then execute `docs/qa-plan.md`. Record the exact source SHA, phone model, Android version, client/build identifier, and each result. If LAN discovery is unavailable, use the Expo-supported alternate connection mode rather than treating a QR display as a pass.
-
-## APK route
-
-`eas.json` contains:
-
-```json
-{
-  "build": {
-    "preview": {
-      "distribution": "internal",
-      "android": { "buildType": "apk" }
-    }
-  }
-}
-```
-
-No APK was produced in this environment because EAS authentication/build access is not available here and no local Android SDK is configured. On an authorized machine/account:
-
-```bash
-npm ci
-npx eas-cli@latest init        # only if an EAS project link is absent
 npx eas-cli@latest build --platform android --profile preview
 ```
 
-Keep Expo credentials and signing material local; do not paste passwords, tokens, keystores, or private signing data into chat or commit them. Record EAS build ID, source SHA, APK SHA-256, install result, phone model/OS, and device test matrix.
+If the project is not yet linked to EAS, perform the project-link/init step locally. Keep Expo credentials, tokens, keystores and signing material out of chat and Git.
 
-A configured local Android SDK/Gradle machine is the fallback if EAS is unavailable.
+Record:
 
-## Release gates still open
+- exact source Git SHA;
+- EAS/native build ID;
+- APK SHA-256;
+- phone model and Android version/API;
+- install/launch result;
+- full `docs/qa-plan.md` results.
 
-- canonical installed-dependency typecheck
-- full committed Vitest suite, including controller/domain/integration tests
-- Android JavaScript export
-- Expo dependency compatibility check
-- Android native build/APK
-- physical-phone functional/relaunch/offline/accessibility matrix
-- independent Phase 3 audit by a reviewer who implemented none of A/B/C/master integration
-- repair/retest cycle for any Phase 3 findings
+A JavaScript export, Metro launch, or QR code is not an APK/native-install pass.
 
-Until those gates have evidence, call this revision an **integrated candidate**, not a release or submission-ready build.
+## Open gates before any submission-readiness decision
+
+- successful lockfile dependency installation;
+- canonical project typecheck;
+- committed Vitest suite;
+- Android JavaScript export;
+- Expo installed-tree dependency check;
+- native Android build/install;
+- physical-phone functional/relaunch/offline/layout/accessibility matrix;
+- independent re-review of P3-01 through P3-06 and adjacent journeys on this repaired source/build.

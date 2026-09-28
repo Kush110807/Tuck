@@ -1,0 +1,8 @@
+PASS valid JPEG with MIME is detected from bytes, decoded and accepted
+PASS valid PNG with missing MIME is detected from bytes and accepted
+PASS valid WebP with MIME is detected from bytes, decoded and accepted
+PASS MIME/byte mismatch is rejected
+PASS truncated/corrupt unsupported bytes are rejected before commit
+PASS signature-valid input is still rejected when native decoder probe fails
+PASS actual 10 MiB limit is checked before native decode
+PASS 7/7 mocked filesystem image-validation scenarios against repaired production source

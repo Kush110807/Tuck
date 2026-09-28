@@ -1,0 +1,3 @@
+PASS stored available image transitions to render-failed fallback only after renderer error
+PASS missing and resolution-unavailable remain distinct fallback reasons
+PASS 2/2 pure image-presentation recovery scenarios

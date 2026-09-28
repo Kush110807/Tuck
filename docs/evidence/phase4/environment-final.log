@@ -1,0 +1,11 @@
+date=2026-09-28T07:53:15+00:00
+v22.16.0
+10.9.2
+git version 2.47.3
+Version 5.8.3
+openjdk version "21.0.11" 2026-04-21
+OpenJDK Runtime Environment (build 21.0.11+10-1-deb13u2-Debian)
+OpenJDK 64-Bit Server VM (build 21.0.11+10-1-deb13u2-Debian, mixed mode, sharing)
+adb=NOT_FOUND
+gradle=NOT_FOUND
+eas=NOT_FOUND

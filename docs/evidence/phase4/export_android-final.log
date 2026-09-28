@@ -1,0 +1,5 @@
+
+> tuck@1.0.0 export:android
+> expo export --platform android --output-dir dist
+
+sh: 1: expo: not found

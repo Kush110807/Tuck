@@ -1,0 +1,5 @@
+PASS replacement copies new, queues old in transaction, then removes old after commit
+PASS failed replacement validation/copy leaves old metadata/file untouched
+PASS failed replacement DB commit cleans new copy and does not remove old file
+PASS delete queues image with metadata mutation before physical removal
+PASS 4/4 mocked repository image-order scenarios

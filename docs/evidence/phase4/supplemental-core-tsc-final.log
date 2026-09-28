@@ -1,0 +1,4 @@
+Command: tsc --noEmit --strict --target ES2022 --module commonjs --moduleResolution node --lib ES2022,DOM src/contracts/index.ts src/domain/imageFormat.ts src/domain/normalization.ts src/domain/validation.ts src/controllers/observable.ts src/controllers/helpers.ts src/controllers/editorController.ts src/controllers/detailController.ts src/controllers/listControllers.ts src/navigation/MutationMailbox.ts
+Result: PASS (exit 0)
+Compiler: system TypeScript 5.8.3
+Note: dependency-free production contracts/domain/core-controller check only; no replacement production typings; does not replace canonical project typecheck.

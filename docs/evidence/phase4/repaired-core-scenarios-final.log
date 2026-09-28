@@ -1,0 +1,11 @@
+PASS detailDegradesAndRetries
+PASS editorDegradesPreservesDraftAndRetries
+PASS missingEditReturnsOnce
+PASS missingDuringSaveDoesNotReportSuccess
+PASS secondConflictRequiresSecondConfirmation
+PASS activeTagSurvivesZeroMatchAndClears
+PASS duplicateSaveGuard
+PASS staleImageResolutionDoesNotReplaceNewerSearch
+PASS oneShotMailboxAndFocusRefresh
+PASS duplicateArchiveDeleteGuards
+PASS 10/10 repaired core scenarios

@@ -1,0 +1,4 @@
+PASS denied/unused media permission does not gate supported system picker launch; missing MIME is retained for byte validation
+PASS picker cancellation remains distinct
+PASS provider launch failure remains an explicit picker failure
+PASS 3/3 picker adapter scenarios

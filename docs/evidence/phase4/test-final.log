@@ -1,0 +1,5 @@
+
+> tuck@1.0.0 test
+> vitest run
+
+sh: 1: vitest: not found

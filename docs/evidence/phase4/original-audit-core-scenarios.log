@@ -1,0 +1,24 @@
+{
+  "secondConflict": {
+    "expectedTimes": [
+      100,
+      200,
+      300
+    ],
+    "draftPreserved": true,
+    "secondConfirmationRequired": true
+  },
+  "detailImageResolutionFailure": {
+    "kind": "failed",
+    "error": {
+      "code": "OPEN_FAILED",
+      "message": "fs read failure"
+    }
+  },
+  "staleEdit": {
+    "state": {
+      "kind": "missing"
+    },
+    "navigationCalls": []
+  }
+}

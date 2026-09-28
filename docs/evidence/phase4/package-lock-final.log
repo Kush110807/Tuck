@@ -1,0 +1,3 @@
+PASS package/lock root dependencies match
+PASS package/lock root devDependencies match
+PASS lockfileVersion 3

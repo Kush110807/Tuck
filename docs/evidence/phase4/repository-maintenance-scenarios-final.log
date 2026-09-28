@@ -1,0 +1,4 @@
+PASS recoverable image enumeration failure does not block initialize/list and later retry removes orphan
+PASS real metadata integrity failure remains blocking and image maintenance is not attempted
+PASS database failure reading cleanup metadata remains fatal and filesystem enumeration is not attempted
+PASS 3/3 mocked Expo repository maintenance scenarios

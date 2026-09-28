@@ -1,0 +1,4 @@
+Command: npm ci --ignore-scripts --no-audit --no-fund
+Working tree: clean source checkout with node_modules/dist/.expo removed first
+Result: BLOCKED
+Observed behavior: the bounded online attempt did not complete within 90 seconds and the execution wrapper timed out. The npm process was terminated and the partial node_modules directory was removed. No successful dependency restoration was claimed and the same online attempt was not repeated.

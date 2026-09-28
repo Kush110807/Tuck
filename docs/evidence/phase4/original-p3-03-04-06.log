@@ -1,0 +1,4 @@
+REPRO P3-03: original denied media permission prevents system picker launch
+REPRO P3-04a: original valid-provider result with missing MIME is rejected before byte inspection
+REPRO P3-04b: original store accepts non-image bytes labeled image/jpeg and persists a .jpg reference
+REPRO P3-06: original selected tag remains in query but disappears from availableTags at zero matches

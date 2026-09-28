@@ -1,92 +1,99 @@
 # Tuck — BYTE App Development Stage 1
 
-**Status: Phase 2 integrated candidate.** This revision integrates the Stage 1 UI, interaction controllers, SQLite repository, persistent app-owned image storage, production navigation, and native adapters. It is **not** a submission-ready release: the canonical dependency-backed checks, Android native launch/APK build, physical-phone matrix, and independent Phase 3 audit still require evidence where marked below.
+**Status: Phase 4 repaired candidate — verification incomplete.** This revision starts from the independently audited Phase 2 commit `9ab9be28d70c66235a2aabd287b87ed5c1c9a568` and repairs findings P3-01 through P3-06. It is **not** declared submission-ready: clean dependency-backed project checks, an Android native build/install, physical-phone verification, and an independent re-review of this repaired revision still require evidence.
 
 ## Stage 1 scope
 
-Tuck is an Android-first, single-device save-for-later app for **notes, links, and images**. It includes Inbox, Editor, Detail, and Archive; text search; type and tag filters; create/view/edit/delete; archive/restore; external link opening; local SQLite persistence; and persistent copied image files.
+Tuck is an Android-first, single-device save-for-later app for **notes, links, and images**. It includes Inbox, Editor, Detail, and Archive; text search; type and tag filters; create/view/edit/delete; archive/restore; external link opening; local SQLite persistence; and persistent app-owned image files.
 
 Deliberately out of scope: login/authentication, backend/cloud sync, multi-device data, Share-menu intake, AI, notifications, and archive undo.
 
-The production app starts empty. `src/preview/**`, `src/ui/previews/**`, `src/contracts/fixtureSpec.ts`, and `assets/fixtures/**` exist only for preview/test development and are not imported by production `App.tsx` or the production navigation graph.
+The production app starts empty. Preview modules and fixture data remain test/development-only and are not imported by the production graph.
 
 ## Architecture
 
-Production startup creates exactly one shared data layer with `createTuckDataLayer()` and exactly one app-level `MutationMailbox`. `BootController` initializes SQLite before the navigator mounts. Screen wrappers keep controllers stable for a route, subscribe/unsubscribe to controller notifications, reread current props after each notification, and connect navigation focus to Inbox/Archive/Detail refresh.
+Production startup creates one shared `createTuckDataLayer()` and one app-level `MutationMailbox`. `BootController` initializes the metadata repository before navigation mounts. Screen wrappers keep controllers stable for a route, subscribe/unsubscribe to controller notifications, reread controller props after each notification, and connect focus to Inbox/Archive/Detail refresh.
 
-- `src/ui/**` — presentational screens/components only.
+- `src/ui/**` — presentational screens/components and render fallbacks.
 - `src/controllers/**` — screen state, pending guards, picker/link adapters, stale-response handling, conflict/confirmation logic.
-- `src/domain/**` — validation, normalization, matching rules.
-- `src/data/**` — SQLite repository and app-owned image persistence.
-- `src/navigation/**` — native-stack wiring, guarded Android Back integration, navigation actions, cross-screen mutation mailbox.
+- `src/domain/**` — validation, normalization, search rules, supported-image byte-format detection.
+- `src/data/**` — SQLite repository and app-owned image persistence/validation.
+- `src/navigation/**` — native-stack wiring, guarded Android Back integration, navigation actions, one-shot mutation mailbox.
 
-See [docs/architecture.md](docs/architecture.md) and [docs/CONTRACT_RULES.md](docs/CONTRACT_RULES.md).
+See `docs/architecture.md`, `docs/CONTRACT_RULES.md`, and `docs/phase4-verification.md`.
+
+## Phase 4 repair summary
+
+The repaired candidate addresses all six independent findings without adding deferred features:
+
+1. **P3-01 — startup maintenance boundary:** SQLite open/migration/integrity failures and database failures in maintenance metadata remain fatal. Physical cleanup failures stay queued, while filesystem-only image enumeration/reconciliation failures no longer block otherwise readable metadata. Skipped reconciliation remains pending for bounded retry.
+2. **P3-02 — image-resolution degradation:** Detail and edit Editor retain metadata/draft/actions when image resolution itself fails. A distinct `unavailable` image state carries the error and supports retry. Ordinary `missing` remains separate.
+3. **P3-03 — picker permission gate:** Android/system image-library launch no longer requests media-library permission as a prerequisite. Cancellation remains distinct from provider/launch failure. The app config also disables unused camera/audio permission injection and blocks legacy broad external-storage permissions for this library-only flow.
+4. **P3-04 — image validation/render recovery:** picker MIME metadata is advisory/optional. The store checks actual bytes for JPEG/PNG/WebP identity, enforces the actual 10 MiB limit, probes the native image decoder before returning a persistent reference, and adds `Image.onError` fallbacks for later rendering failures. Failed replacement still leaves the old item/image intact.
+5. **P3-05 — disappeared edit target:** confirmed `NOT_FOUND` during initial edit load, conflict refresh, or save returns once to Inbox with explanatory one-shot feedback; transient DB failures do not take that path.
+6. **P3-06 — active tag visibility:** an already-selected tag remains visible and individually clearable even when another AND-combined criterion yields zero rows.
+
+The prior explicit edit-conflict behavior is preserved: the local draft is not silently rebased or retried, and a second concurrent modification requires another explicit overwrite confirmation.
+
+## Image validation boundary
+
+Tuck now validates supported selections in layers:
+
+- actual file size is checked against 10 MiB;
+- actual bytes must identify as JPEG, PNG, or WebP rather than relying on MIME/extension;
+- if the picker supplied a supported MIME value, it must agree with detected bytes;
+- React Native's native image decoder is probed with `Image.getSize()` before the persistent path is accepted;
+- the rendered `<Image>` also has `onError` fallback so a stored file that later becomes unreadable does not hide metadata or loop retries.
+
+This is a proportionate pre-commit validation strategy, not a claim to implement a full independent image codec/parser. Exact Android content-provider behavior and decoder/render parity remain native-device verification items.
 
 ## Pinned runtime
 
-The lockfile pins the integrated Expo SDK 57 stack, including Expo `~57.0.25`, React Native `0.86.3`, React `19.2.3`, SQLite `~57.0.3`, FileSystem `~57.0.7`, and ImagePicker `~57.0.20`. Expo's current SDK reference maps SDK 57 to React Native 0.86 / React 19.2.3 with Node 22.13.x minimum, and its current SQLite, FileSystem, and ImagePicker references recommend the exact `~57.0.3`, `~57.0.7`, and `~57.0.20` package lines used here.
+The manifest/lockfile still use the Phase 2 Expo SDK 57 stack: Expo `~57.0.25`, React Native `0.86.3`, React `19.2.3`, SQLite `~57.0.3`, FileSystem `~57.0.7`, and ImagePicker `~57.0.20`. **No new dependency was added for Phase 4.**
 
-Use Node **22.13 or newer** for Expo SDK 57. The current integration environment used Node `22.16.0` and npm `10.9.2`.
+Use Node 22.13 or newer for Expo SDK 57. The Phase 4 environment used Node `22.16.0` and npm `10.9.2`.
 
-## Fresh-checkout commands
+## Fresh-checkout verification commands
 
 ```bash
 npm ci
 npm run typecheck
 npm test
 npm run export:android
-npm start
+npx expo install --check
 ```
 
-`npm run export:android` is a JavaScript/static Expo export check. It is **not** an APK/native-build pass.
+`npm run export:android` is a JavaScript/static Expo export check. It is **not** a native APK/install pass.
 
-### Current Phase 2 verification status
+### Current Phase 4 verification status
 
-As of 28 September 2026 in the integration environment:
+- Phase 2 candidate ZIP identity and embedded starting commit were verified before repairs.
+- Repair source and regression coverage are committed on a repair branch descended directly from the required starting commit.
+- Supplemental dependency-free production TypeScript for contracts/domain/core controllers passed with system TypeScript 5.8.3 and no production typing stubs.
+- Supplemental repaired-source execution passed controller, startup-boundary, image-validation, and picker scenarios; exact counts and limits are in `docs/phase4-verification.md`.
+- Clean online `npm ci` is **BLOCKED** by the execution environment transport timeout. One offline install check is **BLOCKED** with `ENOTCACHED` for `zod-3.25.76.tgz`.
+- Because the dependency tree is absent, canonical `npm run typecheck`, `npm test`, `npm run export:android`, and `npx expo install --check` are **BLOCKED**, not passed.
+- Android native launch, APK build/install, and physical-phone tests are **NOT RUN**.
 
-- Baseline commit `1af6a69f6638e3c2fd26319efd253084e24760e0` was verified before integration.
-- A, B, and C were integrated as separate commits before master integration fixes.
-- A strict TypeScript check of the contracts/domain/core controllers using the system TypeScript compiler passed without production typing stubs.
-- A supplemental runtime smoke passed 6/6 targeted scenarios: normalization/URL rejection, duplicate Save, explicit conflict overwrite, stale image suppression, mailbox/focus refresh, and duplicate archive/pending Back.
-- `npm ci` is currently **BLOCKED** by npm-registry DNS/transport failure; the bounded online attempt timed out without restoring dependencies, and offline install is **BLOCKED** because required tarballs such as `zod-3.25.76.tgz` are not cached.
-- Therefore canonical `npm run typecheck`, `npm test`, Expo dependency checks, and `npm run export:android` cannot be treated as passed until dependencies install successfully.
-- Android native launch, APK build, and physical-phone testing are **NOT RUN**.
+## Phone verification
 
-Exact command results are recorded in [docs/phase2-verification.md](docs/phase2-verification.md), build gates in [docs/release.md](docs/release.md), and the device matrix in [docs/qa-plan.md](docs/qa-plan.md).
+Once package/build access is available, use the exact packaged repair commit and complete `docs/qa-plan.md`. Record source SHA, build/client ID, phone model, Android version, and each result. Focused Phase 4 checks include image-storage startup degradation/recovery, image-resolution retry, permission-denied/system-picker behavior, content validation, render fallback, disappeared edit targets, active-tag zero-match recovery, and Android activity destruction during image selection.
 
-## Run on the confirmed physical Android phone
+## APK route
 
-After `npm ci` succeeds on a machine with network access:
-
-1. Run `npm run typecheck` and `npm test` first.
-2. Run `npm start` and open the project on the phone using an SDK-57-compatible Expo development client/Expo Go route available to that machine. Record the phone model and Android version before testing.
-3. Exercise the complete checklist in `docs/qa-plan.md`, including all three create types, tags/search/combined filters, view/edit, archive/restore/delete, image replacement and picker cancellation, dirty-editor Android Back, force-close/relaunch persistence, and airplane-mode local operations.
-4. Do not infer an APK or native-build pass from Metro or JavaScript export success.
-
-## Installable APK route
-
-`eas.json` already defines an internal `preview` profile with `android.buildType: "apk"`. This environment does not have usable EAS authentication/build access or a local Android SDK, so no APK is claimed.
-
-On an authorized machine/account, keep credentials out of chat and Git, then:
+`eas.json` defines an internal Android APK profile. On an authorized machine/account, keep credentials/signing material local and run:
 
 ```bash
 npm ci
-npx eas-cli@latest init          # only if this repo is not already linked to an EAS project
+npm run typecheck
+npm test
+npm run export:android
+npx expo install --check
 npx eas-cli@latest build --platform android --profile preview
 ```
 
-Complete Expo login/credential prompts locally. Record the source SHA, EAS build ID, downloaded APK checksum, phone model/Android version, and installed-app results. If EAS is unavailable, use a properly configured Android SDK/Gradle machine instead.
+If the repo is not linked to an EAS project, initialize/link it locally first. Do not treat Metro or a JavaScript export as a native-build pass.
 
-## Important integration behavior
+## Independent re-review
 
-- Duplicate Save/archive/delete actions are synchronously blocked while pending.
-- Stale list/image responses are generation-guarded; lists refresh whenever revisited.
-- Mutation success feedback is one-shot through the shared mailbox.
-- Edit conflicts preserve the exact local draft. Tuck fetches the latest timestamp but **does not overwrite automatically**; the user must explicitly choose “Overwrite newer version” before another write is attempted.
-- Selected images are copied before metadata commit; replacement/deletion ordering and queued cleanup protect metadata/file consistency.
-- Missing image files do not hide or disable the item's metadata operations.
-- Local note/link/image text is trimmed consistently by the domain validator; tags/search use the same normalization rules.
-
-## Phase 3
-
-The next gate is an **independent reviewer who implemented none of A, B, C, or master integration**. Use [docs/phase3-reviewer-handoff.md](docs/phase3-reviewer-handoff.md). That reviewer owns `docs/independent-audit.md`; this Phase 2 handoff does not claim to perform that audit.
+Use `docs/independent-rereview-handoff.md` in the existing Phase 3 review context. The original audit evidence is preserved byte-for-byte at `docs/evidence/Tuck_Phase3_Independent_Audit_9ab9be2.zip`; its SHA-256 is recorded in the Phase 4 verification document. The original `audit-core-scenarios.js` intentionally asserted the old broken behavior for two findings and must **not** be counted unchanged as a repair pass.

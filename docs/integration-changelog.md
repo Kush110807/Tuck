@@ -1,34 +1,45 @@
-# Phase 2 integration change log
+# Integration and repair change log
 
-## Workstream preservation
+## Phase 2 integration
 
-Master verified the baseline SHA and ownership before merging. Workstream A, B, and C handoffs were committed separately, then master changes were applied afterward. No raw handoff report was treated as proof that the integrated source worked.
+Master integrated A/B/C as separate commits from the frozen baseline, replaced placeholder production wiring with the real services/controllers/UI, and fixed cross-list focus refresh, explicit edit-conflict confirmation, normalization/link-validation drift, and production navigation. Phase 2 intentionally remained an integrated candidate pending independent review.
 
-## Production wiring
+## Phase 3 independent audit
 
-- Replaced placeholder navigation with A's real Inbox/Editor/Detail/Archive screens.
-- Constructed one shared `createTuckDataLayer()` and one shared app-level `MutationMailbox`.
-- Added stable React route wrappers for C controllers and production picker/link adapters.
-- Added subscription cleanup + fresh-props reread through `useControllerProps()`.
-- Gated navigator mount on `BootController.start()` reaching ready.
-- Connected Inbox/Archive/Detail `onFocus()` and edit Editor `load()` lifecycle.
-- Routed Android Back through Editor/Detail/Archive controller boundaries; disabled stack gestures/native headers that could bypass them.
+The independent reviewer audited commit `9ab9be28d70c66235a2aabd287b87ed5c1c9a568` and confirmed six findings P3-01 through P3-06. The original audit ZIP is preserved unchanged at `docs/evidence/Tuck_Phase3_Independent_Audit_9ab9be2.zip` with SHA-256 `4b8b9290e8c6b7a28d915a2c96e4bf5f4dee72e87423a125310c6af03a45a7e2`.
 
-## Confirmed integration defects fixed
+## Phase 4 confirmed repairs
 
-1. **Cross-list staleness:** lists previously refreshed on focus only when first-loaded or when their own mailbox notice existed. A restore/archive could leave the other still-mounted list stale. Lists now refresh on every focus while success feedback remains one-shot.
-2. **Unsafe edit conflict retry:** C previously fetched a fresh timestamp after `CONFLICT`, rebased untouched fields, then allowed the next Save to overwrite without a distinct overwrite decision. Phase 2 adds an explicit conflict-confirmation state/callback pair. The exact draft is preserved and no retry happens until the user chooses overwrite.
-3. **Text persistence mismatch:** B trimmed titles but not all type-specific persisted strings. Domain validation now trims note body, URL, and nonblank image caption consistently with the Stage 1 contract; blank captions normalize to null.
-4. **Controller/domain normalization drift:** controller tag display/key handling now delegates to the domain normalizer and imports shared tag limits. Unicode limits are counted by code point consistently; `FormField` clips/counts the same way instead of relying on platform `maxLength` semantics.
-5. **Link validation drift:** the production link opener now parses the URL and rechecks an exact `http:`/`https:` protocol instead of accepting any regex-shaped string.
-6. **Production placeholder shell:** real controllers/data/UI now replace the baseline placeholder route content. Preview/test fixtures remain isolated from production imports.
+### P3-01 — recoverable image maintenance blocked startup
 
-## Tests added/updated
+`SQLiteItemRepository.initialize()` keeps DB open/migration/integrity and database-backed maintenance reads/writes fatal. Physical file-removal failures remain queued, while filesystem-only image enumeration/reconciliation failures are recoverable and stay pending for explicit/later retry. Reconciliation reads the complete DB reference set before image enumeration/deletion, so incomplete filesystem information is never used to delete files.
 
-- C editor conflict test now requires explicit overwrite confirmation and verifies cancel preserves the dirty draft.
-- List focus test verifies one-shot feedback plus refresh on every revisit.
-- Domain tests cover trim/tag/search/update normalization consistency and Unicode code-point limits.
-- Repository tests cover queued cleanup not blocking metadata, replacement copy/commit/cleanup ordering, failed replacement rollback cleanup, and delete queue/commit/file-removal ordering.
-- Adapter tests now reject malformed HTTP(S)-looking URLs as well as non-HTTP schemes.
+### P3-02 — image resolve error hid metadata
 
-No native dependency version was changed during Phase 2 integration.
+`ImageViewState` gains `unavailable { error }`. Detail and edit Editor now remain `ready` when metadata loaded but image resolution returned an image-specific error. Editor has a dedicated image retry that preserves the draft/stored path; Detail retries through normal refresh. Ordinary missing-file state stays distinct.
+
+### P3-03 — unnecessary picker permission gate
+
+The Expo ImagePicker adapter no longer calls `requestMediaLibraryPermissionsAsync()` before `launchImageLibraryAsync()` for this image-only system library flow. Cancellation, provider failure, and a successful pick remain distinct. Picker MIME metadata may be unavailable and is passed as `null` for content validation.
+
+The app config also disables the ImagePicker plugin's unused Android camera and microphone permissions and blocks legacy `READ_EXTERNAL_STORAGE` / `WRITE_EXTERNAL_STORAGE` manifest permissions for this library-only flow; no broad media-library permission is added by Tuck.
+
+### P3-04 — actual image validation/render fallback
+
+New `src/domain/imageFormat.ts` identifies supported image byte formats. `PersistentImageStore` now checks actual size, actual content identity, optional MIME agreement, and native decoder dimensions before accepting a path, then checks the copied app-owned file again. No new dependency was required. Detail, list cards and image editor previews use `Image.onError` fallback without clearing metadata or looping automatically.
+
+Failed replacement before metadata transaction still retains the original item/reference/file; existing ordering tests were extended.
+
+### P3-05 — disappeared edit target
+
+Initial edit load, edit save, and conflict-refresh `NOT_FOUND` all route once to Inbox with an informational mailbox notice. DB/storage failures do not masquerade as deletion. Existing explicit conflict overwrite behavior is preserved.
+
+### P3-06 — selected tag disappeared on zero matches
+
+List controllers retain the observed display label for the currently selected tag while mounted so the chip remains visible and individually clearable even when another filter produces zero rows. Repository AND semantics, Inbox/Archive separation and deterministic sort are unchanged.
+
+## Regression additions
+
+Phase 4 adds/extends tests for startup enumeration failure + later recovery, fatal DB integrity/maintenance-table failure, Detail/Editor image degradation and retry, picker launch without permission gating, manifest permission minimization, missing MIME, JPEG/PNG/WebP content/decoder validation, oversized images, failed replacement preservation, stored-image render fallback, missing edit target paths, second conflict confirmation, and selected-tag zero-match recovery.
+
+Canonical Vitest execution remains blocked in the current environment until the committed dependency tree can be installed; supplemental repaired-source execution is documented separately in `docs/phase4-verification.md`.

@@ -1,4 +1,4 @@
-# Tuck Stage 1 — integrated architecture
+# Tuck Stage 1 — repaired candidate architecture
 
 ```mermaid
 flowchart TD
@@ -6,18 +6,13 @@ flowchart TD
   App --> MB[One MutationMailbox]
   App --> Boot[BootController]
   Boot --> Repo[SQLiteItemRepository]
-  Boot --> Gate[BootGate: initializing / failed / retry]
-  Boot -->|ready only| Nav[React Navigation native stack]
+  Boot --> Gate[BootGate]
+  Boot -->|metadata ready| Nav[React Navigation native stack]
 
-  Nav --> Inbox[Inbox route + stable controller]
-  Nav --> Editor[Editor route + stable controller]
-  Nav --> Detail[Detail route + stable controller]
-  Nav --> Archive[Archive route + stable controller]
-
-  Inbox --> UI[Presentational src/ui screens]
-  Editor --> UI
-  Detail --> UI
-  Archive --> UI
+  Nav --> Inbox[Inbox controller]
+  Nav --> Editor[Editor controller]
+  Nav --> Detail[Detail controller]
+  Nav --> Archive[Archive controller]
 
   Inbox --> Repo
   Editor --> Repo
@@ -26,9 +21,12 @@ flowchart TD
 
   DL --> Repo
   DL --> Images[PersistentImageStore]
-  Repo --> DB[(SQLite)]
+  Repo --> DB[(SQLite metadata)]
   Repo --> Images
-  Editor --> Picker[Expo ImagePicker adapter]
+  Images --> Bytes[Byte format + size validation]
+  Images --> Decoder[RN Image.getSize decoder probe]
+
+  Editor --> Picker[Expo system image picker adapter]
   Detail --> Browser[React Native Linking adapter]
 
   Editor --> MB
@@ -38,34 +36,58 @@ flowchart TD
   MB --> Archive
 ```
 
-## Runtime ownership and lifecycle
+## Runtime lifecycle
 
-`App.tsx` constructs the production data layer, picker/link adapters, one shared mailbox, and the boot controller once. The navigator is not mounted until repository initialization succeeds. A failed initialization remains a blocking BootGate with Retry and can never masquerade as an empty Inbox.
+`App.tsx` constructs the data layer, picker/link adapters, one mailbox, and boot controller once. The navigator is not mounted until metadata repository initialization succeeds. Route controllers are `useMemo`-stable, UI subscriptions clean up on unmount, and Inbox/Archive/Detail refresh on navigation focus. Edit Editor loads once for its route instance.
 
-Each route creates its C controller with `useMemo`, so ordinary React renders do not replace controller state. `useControllerProps()` subscribes to the controller, forces a render on notification, rereads `controller.props`, and returns the unsubscribe callback during React cleanup. Inbox, Archive, and Detail call `onFocus()` through React Navigation focus lifecycle; this both consumes one-shot destination feedback and refreshes persisted state. Edit Editor calls `load()` on mount.
+Native stack headers/gestures are disabled where they could bypass controller guards. Android hardware Back delegates to controller boundaries; pending mutations cannot be raced by a second action or Back exit.
 
-Native stack headers are hidden and swipe/gesture exits are disabled so they cannot bypass controller guards. A's own Back/Cancel controls call controller callbacks. Android hardware Back is intercepted on Editor and Detail and delegated to `requestExit()` / guarded `onBack()`; Archive delegates to its own Back callback. Inbox leaves hardware Back to normal Android app-exit behavior.
+## Fatal startup vs recoverable image maintenance
 
-## Data and image consistency
+Phase 4 separates metadata initialization from optional file maintenance.
 
-`SQLiteItemRepository` is the source of truth for item metadata. It validates through `src/domain/**`, serializes write operations, and uses `expectedUpdatedAt` for optimistic conflict detection. Image item metadata stores only a safe app-relative `images/...` path.
+**Fatal / boot-blocking:** opening SQLite, applying migrations, SQLite `PRAGMA quick_check` integrity verification, or database failure while reading/writing the cleanup/reconciliation metadata. These return `INIT_FAILED`; repository operations remain inaccessible until initialization succeeds.
 
-- Create image: validate/copy new file first, then transactionally insert metadata/tags. A failed DB write cleans or queues the unreferenced copy.
-- Replace image: copy new file first; transactionally point metadata to it and queue the old path; remove the old file only after commit. A failed transaction leaves the old item/file intact and cleans the new copy.
-- Delete image: transactionally delete metadata and queue the image path; physical removal happens only after commit.
-- Cleanup failures from file removal stay in `pending_file_deletions` and are retried at later safe points.
-- Startup reconciliation only examines Tuck-owned image storage. A missing physical image resolves to `missing`; item metadata remains listable/editable/archiveable/deletable.
+**Recoverable filesystem maintenance:** a physical file-removal failure leaves its queue row in place, and a filesystem-only image-directory enumeration/reconciliation failure cannot turn readable notes/links/image metadata into a boot failure. Reconciliation stays pending and retries at bounded safe points.
 
-## Search, normalization, and races
+Reconciliation obtains the complete DB image-reference set before asking the image directory for its contents. If filesystem enumeration fails, no deletion is inferred from incomplete information. Database errors are not swallowed as successful initialization.
 
-Domain validation trims title and type-specific text, normalizes tags with Unicode NFKC + whitespace collapse, and uses lowercase normalized comparison keys for tags/search. Search + type + exact normalized tag + archive state combine with AND; results sort by `updatedAt DESC, id ASC`.
+## Image acceptance and display
 
-List requests use a generation token before repository load and again after asynchronous image resolution. An old search/filter/image-resolution response cannot replace a newer query. Detail and edit image loads use the same generation principle where an asynchronous resolve follows item loading.
+A new image follows this order:
 
-## Mutation results and conflicts
+1. validate selection shape and actual source availability;
+2. enforce the actual 10 MiB limit;
+3. read bytes and identify JPEG/PNG/WebP from content, not extension;
+4. reject a supplied supported MIME value if it conflicts with detected bytes;
+5. call React Native `Image.getSize()` on the source to require native decodability;
+6. copy to a uniquely named app-owned file using the detected extension;
+7. probe the copied file with the native decoder again;
+8. only then return the app-relative path to the repository for metadata commit.
 
-After a confirmed mutation, controllers publish a one-shot `MutationNotice` before navigation. Lists always refresh on focus, so a list that stayed mounted while an item moved between Inbox and Archive becomes current when revisited even if success feedback was addressed to the other list.
+This is deliberately not described as a full codec parser. Byte recognition plus the platform decoder is the acceptance boundary; actual Android provider/decoder behavior remains a device verification item.
 
-Edit conflict handling is intentionally conservative: the local draft is preserved byte-for-byte at the controller level; the latest record is fetched only to obtain the newer optimistic-concurrency baseline. No retry occurs until the user explicitly confirms overwrite. Cancelling the conflict prompt preserves the draft and does not write.
+For already-stored images, `resolve()` distinguishes an absent file (`missing`) from resolution/storage errors (`unavailable`). Controllers retain metadata for both. UI also handles native `<Image onError>` and switches to a manual-retry fallback without mutating the stored reference, preventing automatic retry loops.
 
-Preview repositories, preview state screens, fixture records, and fixture images are not imported by the production graph.
+## Database/file mutation consistency
+
+- **Create image:** accepted/copy-complete file first; metadata/tags commit second; failed DB commit cleans or queues the new orphan.
+- **Replace image:** accepted new copy first; transaction updates reference and queues old path; old file removal only after commit. Any validation/copy/commit failure leaves the original metadata/reference intact.
+- **Delete image:** transaction deletes metadata and queues image path; physical deletion only after commit.
+- **Cleanup failure:** queue row remains for later retry and does not resurrect or block metadata.
+
+## Search, tag visibility, and races
+
+Domain validation trims type-specific content, normalizes tags with NFKC + whitespace collapse, and uses lowercase comparison keys. Search + type + exact tag + archive scope combine with AND; results sort `updatedAt DESC, id ASC`.
+
+A mounted list controller remembers normalized display labels it has actually observed. If its currently selected tag later yields zero rows because of another criterion, only that selected known tag is retained in the filter UI so it stays visible/clearable. This does not broaden the repository query or change AND semantics.
+
+List, Detail, and Editor image-related async work uses generation guards so stale resolutions cannot replace newer state.
+
+## Edit target disappearance and conflicts
+
+`NOT_FOUND` is treated differently from transient DB failure. A confirmed missing edit target publishes one informational Inbox notice and navigates safely to Inbox once, whether disappearance is discovered on initial load, conflict refresh, or save. Other repository errors remain in the Editor.
+
+Conflict handling remains conservative: local draft is preserved; newest metadata is held only as a concurrency baseline; no overwrite occurs without explicit confirmation. A second concurrent modification before confirmed overwrite produces another conflict and another confirmation.
+
+Preview repositories, fixture records, and preview state screens are outside the production graph.

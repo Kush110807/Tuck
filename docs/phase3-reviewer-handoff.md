@@ -1,4 +1,6 @@
-# Phase 3 independent reviewer handoff
+# Phase 3 independent reviewer handoff (historical Phase 2 handoff)
+
+> Phase 4 has repaired the six findings from this review cycle. For the repaired candidate use `docs/independent-rereview-handoff.md`. This file is retained as historical handoff context.
 
 **Candidate status:** Phase 2 integrated candidate, not a release. The independent reviewer must not have implemented Workstream A, B, C, or master integration. The reviewer owns `docs/independent-audit.md`; do not overwrite this handoff with assumed results.
 
