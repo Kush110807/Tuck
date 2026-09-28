@@ -1,4 +1,4 @@
-import type { ImageStore, ItemRepository } from '../contracts';
+import type { ImageStore, TuckRepository } from '../contracts';
 import { PersistentImageStore } from './PersistentImageStore';
 import { SQLiteItemRepository, type SQLiteItemRepositoryOptions } from './SQLiteItemRepository';
 
@@ -7,7 +7,7 @@ export { SQLiteItemRepository } from './SQLiteItemRepository';
 export type { SQLiteItemRepositoryOptions } from './SQLiteItemRepository';
 
 export type TuckDataLayer = Readonly<{
-  repository: ItemRepository;
+  repository: TuckRepository;
   imageStore: ImageStore;
 }>;
 

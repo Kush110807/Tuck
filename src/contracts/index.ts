@@ -1,9 +1,42 @@
-/** Shared Tuck Stage 1 contracts. Master owns Phase 2 integration changes to this file. */
+/** Shared Tuck contracts. Shared-contract changes are master-owned. */
 export type ItemId = string;
+export type CollectionId = string;
 export type ItemType = 'note' | 'link' | 'image';
 export type ListRoute = 'Inbox' | 'Archive';
 export type RelativeImagePath = string;
 export type EpochMs = number;
+export type SortOrder = 'updated_desc' | 'created_desc' | 'created_asc' | 'title_asc';
+export type SmartView = 'pinned' | 'untagged' | 'unfiled';
+
+export type Collection = {
+  id: CollectionId;
+  name: string;
+  nameKey: string;
+  createdAt: EpochMs;
+  updatedAt: EpochMs;
+};
+
+export type CollectionSummary = Collection & {
+  /** Active (non-archived) items only. */
+  activeItemCount: number;
+};
+
+export type TagSummary = {
+  key: string;
+  /** Stable display form chosen deterministically from existing item_tags rows. */
+  display: string;
+  /** Active (non-archived) items only. */
+  activeItemCount: number;
+};
+
+export type LibraryOverview = {
+  activeItemCount: number;
+  archivedItemCount: number;
+  collections: readonly CollectionSummary[];
+  tags: readonly TagSummary[];
+  smartViews: Readonly<Record<SmartView, number>>;
+  types: Readonly<Record<ItemType, number>>;
+};
 
 export type ItemBase = {
   id: ItemId;
@@ -12,6 +45,8 @@ export type ItemBase = {
   createdAt: EpochMs;
   updatedAt: EpochMs;
   archived: boolean;
+  collectionId: CollectionId | null;
+  pinned: boolean;
 };
 
 export type SavedItem =
@@ -28,17 +63,17 @@ export type ImageSelection = {
 };
 
 export type CreateItemInput =
-  | { type: 'note'; title: string; body: string; tags: readonly string[] }
-  | { type: 'link'; title: string; url: string; tags: readonly string[] }
-  | { type: 'image'; title: string; caption: string | null; image: ImageSelection; tags: readonly string[] };
+  | { type: 'note'; title: string; body: string; tags: readonly string[]; collectionId?: CollectionId | null }
+  | { type: 'link'; title: string; url: string; tags: readonly string[]; collectionId?: CollectionId | null }
+  | { type: 'image'; title: string; caption: string | null; image: ImageSelection; tags: readonly string[]; collectionId?: CollectionId | null };
 
 export type UpdateItemInput =
   | { id: ItemId; type: 'note'; expectedUpdatedAt: EpochMs;
-      changes: { title?: string; body?: string; tags?: readonly string[] } }
+      changes: { title?: string; body?: string; tags?: readonly string[]; collectionId?: CollectionId | null } }
   | { id: ItemId; type: 'link'; expectedUpdatedAt: EpochMs;
-      changes: { title?: string; url?: string; tags?: readonly string[] } }
+      changes: { title?: string; url?: string; tags?: readonly string[]; collectionId?: CollectionId | null } }
   | { id: ItemId; type: 'image'; expectedUpdatedAt: EpochMs;
-      changes: { title?: string; caption?: string | null;
+      changes: { title?: string; caption?: string | null; collectionId?: CollectionId | null;
         image?: { kind: 'replace'; selection: ImageSelection }; tags?: readonly string[] } };
 
 export type ItemQuery = {
@@ -46,9 +81,22 @@ export type ItemQuery = {
   text: string;
   type: ItemType | 'all';
   tagKey: string | null;
+  /** Omitted by legacy Phase 5A callers = no collection filter. */
+  collectionId?: CollectionId | null;
+  pinned?: boolean | null;
+  hasTags?: boolean | null;
+  hasCollection?: boolean | null;
+  /** Omitted by legacy Phase 5A callers = updated_desc. */
+  sort?: SortOrder;
 };
 
-export type FieldKey = 'title' | 'body' | 'url' | 'caption' | 'image' | 'tags';
+/** Smart Views are derived query presets, never persisted rows. */
+export type SmartViewQuery = Readonly<{
+  view: SmartView;
+  query: ItemQuery;
+}>;
+
+export type FieldKey = 'title' | 'body' | 'url' | 'caption' | 'image' | 'tags' | 'collection';
 export type FieldErrors = Partial<Record<FieldKey, string>>;
 
 export type AppError = {
@@ -68,9 +116,22 @@ export interface ItemRepository {
   create(input: CreateItemInput): Promise<Result<SavedItem>>;
   update(input: UpdateItemInput): Promise<Result<SavedItem>>;
   setArchived(id: ItemId, archived: boolean, expectedUpdatedAt: EpochMs): Promise<Result<SavedItem>>;
+  setPinned(id: ItemId, pinned: boolean, expectedUpdatedAt: EpochMs): Promise<Result<SavedItem>>;
   remove(id: ItemId, expectedUpdatedAt: EpochMs): Promise<Result<void>>;
   retryPendingFileCleanup(): Promise<Result<{ remaining: number }>>;
 }
+
+export interface OrganisationRepository {
+  getLibraryOverview(): Promise<Result<LibraryOverview>>;
+  listCollections(): Promise<Result<readonly CollectionSummary[]>>;
+  getCollection(id: CollectionId): Promise<Result<Collection>>;
+  createCollection(name: string): Promise<Result<Collection>>;
+  renameCollection(id: CollectionId, name: string, expectedUpdatedAt: EpochMs): Promise<Result<Collection>>;
+  deleteCollection(id: CollectionId, expectedUpdatedAt: EpochMs): Promise<Result<void>>;
+  listTags(): Promise<Result<readonly TagSummary[]>>;
+}
+
+export type TuckRepository = ItemRepository & OrganisationRepository;
 
 export type EditorDraft =
   | { type: 'note'; title: string; body: string; tags: readonly string[]; tagEntry: string }

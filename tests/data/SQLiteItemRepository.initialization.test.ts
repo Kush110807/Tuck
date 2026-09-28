@@ -22,7 +22,7 @@ function createDatabase(quickCheck = 'ok') {
     withExclusiveTransactionAsync: vi.fn(async (task: (tx: unknown) => Promise<void>) => task({})),
     runAsync: vi.fn(async () => ({ changes: 1, lastInsertRowId: 0 })),
     getFirstAsync: vi.fn(async (sql: string) => {
-      if (sql.includes('PRAGMA user_version')) return { user_version: 1 };
+      if (sql.includes('PRAGMA user_version')) return { user_version: 2 };
       if (sql.includes('PRAGMA quick_check')) return { quick_check: quickCheck };
       if (sql.includes('COUNT(*) AS count')) return { count: 0 };
       return null;

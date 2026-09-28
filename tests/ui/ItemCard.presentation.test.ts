@@ -16,6 +16,8 @@ function imageItem(overrides: Partial<SavedItem> = {}): SavedItem {
     createdAt: now - 10_000,
     updatedAt: now - 5 * 60_000,
     archived: false,
+    collectionId: null,
+    pinned: false,
     ...overrides,
   } as SavedItem;
 }

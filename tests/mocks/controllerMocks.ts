@@ -45,6 +45,7 @@ export class MockItemRepository implements ItemRepository {
   createCalls: CreateItemInput[] = [];
   updateCalls: UpdateItemInput[] = [];
   setArchivedCalls: Array<{ id: ItemId; archived: boolean; expectedUpdatedAt: number }> = [];
+  setPinnedCalls: Array<{ id: ItemId; pinned: boolean; expectedUpdatedAt: number }> = [];
   removeCalls: Array<{ id: ItemId; expectedUpdatedAt: number }> = [];
   cleanupCalls = 0;
 
@@ -54,6 +55,7 @@ export class MockItemRepository implements ItemRepository {
   createImpl: (input: CreateItemInput) => Promise<Result<SavedItem>> = async () => ({ ok: false, error: notImplemented('create') });
   updateImpl: (input: UpdateItemInput) => Promise<Result<SavedItem>> = async () => ({ ok: false, error: notImplemented('update') });
   setArchivedImpl: (id: ItemId, archived: boolean, expectedUpdatedAt: number) => Promise<Result<SavedItem>> = async () => ({ ok: false, error: notImplemented('setArchived') });
+  setPinnedImpl: (id: ItemId, pinned: boolean, expectedUpdatedAt: number) => Promise<Result<SavedItem>> = async () => ({ ok: false, error: notImplemented('setPinned') });
   removeImpl: (id: ItemId, expectedUpdatedAt: number) => Promise<Result<void>> = async () => ({ ok: false, error: notImplemented('remove') });
   cleanupImpl: () => Promise<Result<{ remaining: number }>> = async () => ({ ok: true, value: { remaining: 0 } });
 
@@ -65,6 +67,10 @@ export class MockItemRepository implements ItemRepository {
   async setArchived(id: ItemId, archived: boolean, expectedUpdatedAt: number): Promise<Result<SavedItem>> {
     this.setArchivedCalls.push({ id, archived, expectedUpdatedAt });
     return this.setArchivedImpl(id, archived, expectedUpdatedAt);
+  }
+  async setPinned(id: ItemId, pinned: boolean, expectedUpdatedAt: number): Promise<Result<SavedItem>> {
+    this.setPinnedCalls.push({ id, pinned, expectedUpdatedAt });
+    return this.setPinnedImpl(id, pinned, expectedUpdatedAt);
   }
   async remove(id: ItemId, expectedUpdatedAt: number): Promise<Result<void>> {
     this.removeCalls.push({ id, expectedUpdatedAt });

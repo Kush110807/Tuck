@@ -1,10 +1,12 @@
 import type {
   AppError,
+  CollectionId,
   CreateItemInput,
   FieldKey,
   ImageSelection,
   ItemQuery,
   ItemType,
+  SortOrder,
   UpdateItemInput,
 } from '../contracts';
 import { normalizeComparableText, normalizeTags, toComparisonKey, type NormalizedTag } from './normalization';
@@ -15,9 +17,11 @@ export const MAX_URL_CHARS = 2_000;
 export const MAX_TAGS = 8;
 export const MAX_TAG_CHARS = 24;
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+export const MAX_COLLECTION_NAME_CHARS = 60;
 
 const ITEM_TYPES = new Set<ItemType>(['note', 'link', 'image']);
 const IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const SORT_ORDERS = new Set<SortOrder>(['updated_desc', 'created_desc', 'created_asc', 'title_asc']);
 
 export type ValidatedTags = Readonly<{
   display: readonly string[];
@@ -25,21 +29,28 @@ export type ValidatedTags = Readonly<{
 }>;
 
 export type ValidatedCreateInput =
-  | Readonly<{ type: 'note'; title: string; body: string; tags: ValidatedTags }>
-  | Readonly<{ type: 'link'; title: string; url: string; tags: ValidatedTags }>
-  | Readonly<{ type: 'image'; title: string; caption: string | null; image: ImageSelection; tags: ValidatedTags }>;
+  | Readonly<{ type: 'note'; title: string; body: string; tags: ValidatedTags; collectionId: CollectionId | null }>
+  | Readonly<{ type: 'link'; title: string; url: string; tags: ValidatedTags; collectionId: CollectionId | null }>
+  | Readonly<{ type: 'image'; title: string; caption: string | null; image: ImageSelection; tags: ValidatedTags; collectionId: CollectionId | null }>;
 
 export type ValidatedUpdateInput =
-  | Readonly<{ id: string; type: 'note'; expectedUpdatedAt: number; changes: Readonly<{ title?: string; body?: string; tags?: ValidatedTags }> }>
-  | Readonly<{ id: string; type: 'link'; expectedUpdatedAt: number; changes: Readonly<{ title?: string; url?: string; tags?: ValidatedTags }> }>
-  | Readonly<{ id: string; type: 'image'; expectedUpdatedAt: number; changes: Readonly<{ title?: string; caption?: string | null; image?: { kind: 'replace'; selection: ImageSelection }; tags?: ValidatedTags }> }>;
+  | Readonly<{ id: string; type: 'note'; expectedUpdatedAt: number; changes: Readonly<{ title?: string; body?: string; tags?: ValidatedTags; collectionId?: CollectionId | null }> }>
+  | Readonly<{ id: string; type: 'link'; expectedUpdatedAt: number; changes: Readonly<{ title?: string; url?: string; tags?: ValidatedTags; collectionId?: CollectionId | null }> }>
+  | Readonly<{ id: string; type: 'image'; expectedUpdatedAt: number; changes: Readonly<{ title?: string; caption?: string | null; image?: { kind: 'replace'; selection: ImageSelection }; tags?: ValidatedTags; collectionId?: CollectionId | null }> }>;
 
 export type ValidatedQuery = Readonly<{
   archived: boolean;
   textKey: string;
   type: ItemType | 'all';
   tagKey: string | null;
+  collectionId: CollectionId | null;
+  pinned: boolean | null;
+  hasTags: boolean | null;
+  hasCollection: boolean | null;
+  sort: SortOrder;
 }>;
+
+export type ValidatedCollectionName = Readonly<{ name: string; nameKey: string }>;
 
 type ValidationResult<T> = { ok: true; value: T } | { ok: false; error: AppError };
 
@@ -49,6 +60,27 @@ function validationError(message: string, field?: FieldKey): AppError {
 
 function characterCount(value: string): number {
   return Array.from(value).length;
+}
+
+
+function validateCollectionId(value: unknown): ValidationResult<CollectionId | null> {
+  if (value === null || value === undefined) return { ok: true, value: null };
+  if (typeof value !== 'string' || !value) {
+    return { ok: false, error: validationError('Collection selection is invalid.', 'collection') };
+  }
+  return { ok: true, value };
+}
+
+export function validateCollectionName(value: unknown): ValidationResult<ValidatedCollectionName> {
+  if (typeof value !== 'string') {
+    return { ok: false, error: validationError('Collection name is required.', 'collection') };
+  }
+  const name = normalizeComparableText(value);
+  if (!name) return { ok: false, error: validationError('Collection name is required.', 'collection') };
+  if (characterCount(name) > MAX_COLLECTION_NAME_CHARS) {
+    return { ok: false, error: validationError(`Collection name must be ${MAX_COLLECTION_NAME_CHARS} characters or fewer.`, 'collection') };
+  }
+  return { ok: true, value: { name, nameKey: name.toLowerCase() } };
 }
 
 function validateTitle(value: unknown): ValidationResult<string> {
@@ -150,24 +182,26 @@ export function validateCreateInput(input: CreateItemInput): ValidationResult<Va
   if (!title.ok) return title;
   const tags = validateTags(input.tags);
   if (!tags.ok) return tags;
+  const collection = validateCollectionId(input.collectionId);
+  if (!collection.ok) return collection;
 
   switch (input.type) {
     case 'note': {
       const body = validateBody(input.body);
       if (!body.ok) return body;
-      return { ok: true, value: { type: 'note', title: title.value, body: body.value, tags: tags.value } };
+      return { ok: true, value: { type: 'note', title: title.value, body: body.value, tags: tags.value, collectionId: collection.value } };
     }
     case 'link': {
       const url = validateUrl(input.url);
       if (!url.ok) return url;
-      return { ok: true, value: { type: 'link', title: title.value, url: url.value, tags: tags.value } };
+      return { ok: true, value: { type: 'link', title: title.value, url: url.value, tags: tags.value, collectionId: collection.value } };
     }
     case 'image': {
       const caption = validateCaption(input.caption);
       if (!caption.ok) return caption;
       const image = validateImageSelectionShape(input.image);
       if (!image.ok) return image;
-      return { ok: true, value: { type: 'image', title: title.value, caption: caption.value, image: image.value, tags: tags.value } };
+      return { ok: true, value: { type: 'image', title: title.value, caption: caption.value, image: image.value, tags: tags.value, collectionId: collection.value } };
     }
   }
 }
@@ -190,7 +224,7 @@ export function validateUpdateInput(input: UpdateItemInput): ValidationResult<Va
     return { ok: false, error: validationError('Update changes are required.') };
   }
 
-  const common: { title?: string; tags?: ValidatedTags } = {};
+  const common: { title?: string; tags?: ValidatedTags; collectionId?: CollectionId | null } = {};
   if (input.changes.title !== undefined) {
     const title = validateTitle(input.changes.title);
     if (!title.ok) return title;
@@ -201,10 +235,15 @@ export function validateUpdateInput(input: UpdateItemInput): ValidationResult<Va
     if (!tags.ok) return tags;
     common.tags = tags.value;
   }
+  if (input.changes.collectionId !== undefined) {
+    const collection = validateCollectionId(input.changes.collectionId);
+    if (!collection.ok) return collection;
+    common.collectionId = collection.value;
+  }
 
   switch (input.type) {
     case 'note': {
-      const changes: { title?: string; body?: string; tags?: ValidatedTags } = { ...common };
+      const changes: { title?: string; body?: string; tags?: ValidatedTags; collectionId?: CollectionId | null } = { ...common };
       if (input.changes.body !== undefined) {
         const body = validateBody(input.changes.body);
         if (!body.ok) return body;
@@ -213,7 +252,7 @@ export function validateUpdateInput(input: UpdateItemInput): ValidationResult<Va
       return { ok: true, value: { ...identity.value, type: 'note', changes } };
     }
     case 'link': {
-      const changes: { title?: string; url?: string; tags?: ValidatedTags } = { ...common };
+      const changes: { title?: string; url?: string; tags?: ValidatedTags; collectionId?: CollectionId | null } = { ...common };
       if (input.changes.url !== undefined) {
         const url = validateUrl(input.changes.url);
         if (!url.ok) return url;
@@ -227,6 +266,7 @@ export function validateUpdateInput(input: UpdateItemInput): ValidationResult<Va
         caption?: string | null;
         image?: { kind: 'replace'; selection: ImageSelection };
         tags?: ValidatedTags;
+        collectionId?: CollectionId | null;
       } = { ...common };
       if (input.changes.caption !== undefined) {
         const caption = validateCaption(input.changes.caption);
@@ -253,7 +293,26 @@ export function validateQuery(query: ItemQuery): ValidationResult<ValidatedQuery
   if (typeof query.text !== 'string') return { ok: false, error: validationError('Search text is invalid.') };
   if (query.tagKey !== null && typeof query.tagKey !== 'string') return { ok: false, error: validationError('Tag filter is invalid.') };
 
+  const collectionId = query.collectionId ?? null;
+  const pinned = query.pinned ?? null;
+  const hasTags = query.hasTags ?? null;
+  const hasCollection = query.hasCollection ?? null;
+  const sort = query.sort ?? 'updated_desc';
+
+  if (collectionId !== null && (typeof collectionId !== 'string' || !collectionId)) {
+    return { ok: false, error: validationError('Collection filter is invalid.', 'collection') };
+  }
+  if (pinned !== null && typeof pinned !== 'boolean') return { ok: false, error: validationError('Pinned filter is invalid.') };
+  if (hasTags !== null && typeof hasTags !== 'boolean') return { ok: false, error: validationError('Tag-presence filter is invalid.') };
+  if (hasCollection !== null && typeof hasCollection !== 'boolean') return { ok: false, error: validationError('Collection-presence filter is invalid.') };
+  if (!SORT_ORDERS.has(sort)) return { ok: false, error: validationError('Sort order is invalid.') };
+
   const tagKey = query.tagKey === null ? null : toComparisonKey(query.tagKey);
+  if (tagKey && hasTags === false) return { ok: false, error: validationError('Tag filters conflict.') };
+  if (collectionId !== null && hasCollection === false) {
+    return { ok: false, error: validationError('Collection filters conflict.', 'collection') };
+  }
+
   return {
     ok: true,
     value: {
@@ -261,6 +320,11 @@ export function validateQuery(query: ItemQuery): ValidationResult<ValidatedQuery
       type: query.type,
       textKey: toComparisonKey(query.text),
       tagKey: tagKey || null,
+      collectionId,
+      pinned,
+      hasTags,
+      hasCollection,
+      sort,
     },
   };
 }

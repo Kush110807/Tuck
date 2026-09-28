@@ -23,7 +23,7 @@ function createDatabase(events: string[], options: { failItemUpdate?: boolean } 
   const db: Record<string, unknown> = {};
   db.execAsync = vi.fn(async () => undefined);
   db.getFirstAsync = vi.fn(async (sql: string) => {
-    if (sql.includes('PRAGMA user_version')) return { user_version: 1 };
+    if (sql.includes('PRAGMA user_version')) return { user_version: 2 };
     if (sql.includes('PRAGMA quick_check')) return { quick_check: 'ok' };
     if (sql.includes('COUNT(*) AS count')) return { count: pending.size };
     if (sql.includes('FROM items WHERE id = ?')) return imageRow;
