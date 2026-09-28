@@ -14,6 +14,7 @@ import type { ItemType } from '../../contracts';
 import { colors, minimumTouchSize, radii, space } from '../../theme/tokens';
 import { AppIcon } from './AppIcon';
 import { createOptions } from './createMenuModel';
+import { createSelectionGuard } from './createSelectionGuard';
 import { IconButton } from './IconButton';
 
 export function CreateMenuSheet({
@@ -26,6 +27,7 @@ export function CreateMenuSheet({
   onChoose(type: ItemType): void;
 }) {
   const titleRef = useRef<View>(null);
+  const selectionGuard = useRef(createSelectionGuard()).current;
   const insets = useSafeAreaInsets();
 
   const focusTitle = () => {
@@ -33,8 +35,17 @@ export function CreateMenuSheet({
     if (node) AccessibilityInfo.setAccessibilityFocus(node);
   };
 
+  const handleShow = () => {
+    selectionGuard.reset();
+    focusTitle();
+  };
+
+  const handleChoose = (type: ItemType) => {
+    selectionGuard.choose(type, onChoose);
+  };
+
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} onShow={focusTitle} statusBarTranslucent>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} onShow={handleShow} statusBarTranslucent>
       <View style={styles.backdrop}>
         <Pressable accessibilityRole="button" accessibilityLabel="Close add menu" onPress={onClose} style={StyleSheet.absoluteFill} />
         <View accessibilityViewIsModal style={[styles.sheet, { paddingBottom: space.xl + insets.bottom }]}>
@@ -53,7 +64,7 @@ export function CreateMenuSheet({
                 accessibilityRole="button"
                 accessibilityLabel={`Add ${option.label.toLowerCase()}`}
                 accessibilityHint={option.description}
-                onPress={() => onChoose(option.type)}
+                onPress={() => handleChoose(option.type)}
                 style={({ pressed }) => [styles.option, pressed && styles.optionPressed]}
               >
                 <View style={styles.iconWrap} importantForAccessibility="no-hide-descendants">
