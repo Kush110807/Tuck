@@ -126,8 +126,11 @@ describe('EditorController', () => {
     expect(controller.props.state.draft.body).toBe(note.body);
 
     controller.props.onSave();
+    controller.props.onTitleChange('Should be ignored while deciding');
     await flushAsync();
     expect(repository.updateCalls).toHaveLength(1);
+    if (controller.props.state.kind !== 'ready' || controller.props.state.draft.type !== 'note') throw new Error('expected note ready');
+    expect(controller.props.state.draft.title).toBe('My local title');
     expect(navigation.calls).toHaveLength(0);
 
     controller.props.onConfirmConflictOverwrite();

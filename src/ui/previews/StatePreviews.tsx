@@ -147,7 +147,7 @@ export function EditorPendingPreview() {
 }
 
 export function EditorValidationAndFailurePreview() {
-  return <EditorScreen {...editorBase} mode="edit" state={{ kind: 'ready', draft: { ...noteDraft, title: '' }, fieldErrors: { title: 'Title is required.' }, mutation: { kind: 'failed', operation: 'edit', error: { code: 'CONFLICT', message: 'This item changed elsewhere. Reload and try again.' } }, screenError: null, imagePreview: { kind: 'none' }, isDirty: true, discardConfirmationOpen: false, conflictConfirmationOpen: false }} />;
+  return <EditorScreen {...editorBase} mode="edit" state={{ kind: 'ready', draft: { ...noteDraft, title: '' }, fieldErrors: { title: 'Title is required.' }, mutation: { kind: 'failed', operation: 'edit', error: { code: 'DB_FAILED', message: 'Could not save changes.' } }, screenError: { code: 'DB_FAILED', message: 'Could not save changes.' }, imagePreview: { kind: 'none' }, isDirty: true, discardConfirmationOpen: false, conflictConfirmationOpen: false }} />;
 }
 
 export function EditorDiscardConfirmationPreview() {

@@ -194,7 +194,7 @@ export class EditorController extends ObservableController implements EditorCont
 
   private changeText(field: 'title' | 'body' | 'url' | 'caption', value: string): void {
     const ready = this.currentReady();
-    if (!ready || ready.mutation.kind === 'pending') return;
+    if (!ready || ready.mutation.kind === 'pending' || ready.conflictConfirmationOpen) return;
     let draft = cloneDraft(ready.draft);
     if (field === 'title') draft.title = value;
     else if (field === 'body' && draft.type === 'note') draft.body = value;
@@ -210,7 +210,7 @@ export class EditorController extends ObservableController implements EditorCont
 
   private changeTagEntry(value: string): void {
     const ready = this.currentReady();
-    if (!ready || ready.mutation.kind === 'pending') return;
+    if (!ready || ready.mutation.kind === 'pending' || ready.conflictConfirmationOpen) return;
     const draft = cloneDraft(ready.draft);
     draft.tagEntry = value;
     const fieldErrors = { ...ready.fieldErrors };
@@ -221,7 +221,7 @@ export class EditorController extends ObservableController implements EditorCont
 
   private addTag(): void {
     const ready = this.currentReady();
-    if (!ready || ready.mutation.kind === 'pending') return;
+    if (!ready || ready.mutation.kind === 'pending' || ready.conflictConfirmationOpen) return;
     const display = normalizeTagDisplay(ready.draft.tagEntry);
     if (!display) return;
     if (Array.from(display).length > MAX_TAG_CHARS) {
@@ -231,7 +231,7 @@ export class EditorController extends ObservableController implements EditorCont
       this.emitChange();
       return;
     }
-    const key = display.toLowerCase();
+    const key = tagKey(display);
     const duplicate = ready.draft.tags.some(tag => tagKey(tag) === key);
     if (!duplicate && ready.draft.tags.length >= MAX_TAGS) {
       this.state = this.readyState(ready.draft, ready.imagePreview,
@@ -252,7 +252,7 @@ export class EditorController extends ObservableController implements EditorCont
 
   private removeTag(key: string): void {
     const ready = this.currentReady();
-    if (!ready || ready.mutation.kind === 'pending') return;
+    if (!ready || ready.mutation.kind === 'pending' || ready.conflictConfirmationOpen) return;
     const draft = cloneDraft(ready.draft);
     const normalizedKey = tagKey(key);
     draft.tags = draft.tags.filter(tag => tagKey(tag) !== normalizedKey);
