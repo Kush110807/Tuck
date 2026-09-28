@@ -84,7 +84,9 @@ export class EditorController extends ObservableController implements EditorCont
   private touched = new Set<PersistentField>();
   private pickerPending = false;
   private loadGeneration = 0;
+  private imageResolutionGeneration = 0;
   private conflictBaseline: SavedItem | null = null;
+  private missingTargetHandled = false;
 
   constructor(
     private readonly params: EditorControllerParams,
@@ -120,6 +122,7 @@ export class EditorController extends ObservableController implements EditorCont
       onSave: () => { void this.save(); },
       onCancel: () => this.requestExit(),
       onRetry: () => { void this.retry(); },
+      onRetryImage: () => { void this.retryImageResolution(); },
       onConfirmDiscard: () => this.confirmDiscard(),
       onKeepEditing: () => this.keepEditing(),
       onConfirmConflictOverwrite: () => { void this.confirmConflictOverwrite(); },
@@ -137,8 +140,11 @@ export class EditorController extends ObservableController implements EditorCont
       const result = await this.repository.get(this.params.id);
       if (generation !== this.loadGeneration) return;
       if (!result.ok) {
-        this.state = result.error.code === 'NOT_FOUND' ? { kind: 'missing' } : { kind: 'failed', error: result.error };
-        this.emitChange();
+        if (result.error.code === 'NOT_FOUND') this.handleMissingEditTarget();
+        else {
+          this.state = { kind: 'failed', error: result.error };
+          this.emitChange();
+        }
         return;
       }
       await this.acceptLoadedItem(result.value, generation);
@@ -278,6 +284,7 @@ export class EditorController extends ObservableController implements EditorCont
       }
       const draft = cloneDraft(current.draft);
       if (draft.type !== 'image') return;
+      this.imageResolutionGeneration += 1;
       draft.image = { kind: 'selected', selection: outcome.selection };
       this.updateTouched('image', draft);
       const fieldErrors = { ...current.fieldErrors };
@@ -411,7 +418,8 @@ export class EditorController extends ObservableController implements EditorCont
     try { result = await this.repository.update(input); }
     catch { result = { ok: false, error: unexpectedRepositoryError() }; }
     if (!result.ok) {
-      if (result.error.code === 'CONFLICT') await this.handleConflict(result.error);
+      if (result.error.code === 'NOT_FOUND') this.handleMissingEditTarget();
+      else if (result.error.code === 'CONFLICT') await this.handleConflict(result.error);
       else this.applyMutationFailure('edit', result.error);
       return;
     }
@@ -450,8 +458,7 @@ export class EditorController extends ObservableController implements EditorCont
     catch { latest = { ok: false, error: unexpectedRepositoryError() }; }
     if (!latest.ok) {
       if (latest.error.code === 'NOT_FOUND') {
-        this.state = { kind: 'missing' };
-        this.emitChange();
+        this.handleMissingEditTarget();
         return;
       }
       this.state = this.readyState(ready.draft, ready.imagePreview, ready.fieldErrors, error,
@@ -493,8 +500,9 @@ export class EditorController extends ObservableController implements EditorCont
     const draft = draftFromItem(item);
     let preview: ImageViewState = { kind: 'none' };
     if (item.type === 'image') {
+      const imageGeneration = ++this.imageResolutionGeneration;
       const image = await resolveImageState(item, this.imageStore);
-      if (generation !== this.loadGeneration) return;
+      if (generation !== this.loadGeneration || imageGeneration !== this.imageResolutionGeneration) return;
       if (!image.ok) {
         this.state = { kind: 'failed', error: image.error };
         this.emitChange();
@@ -508,6 +516,39 @@ export class EditorController extends ObservableController implements EditorCont
     this.touched.clear();
     this.state = this.readyState(draft, preview);
     this.emitChange();
+  }
+
+  private async retryImageResolution(): Promise<void> {
+    const ready = this.currentReady();
+    const baseline = this.baselineItem;
+    if (!ready || !baseline || baseline.type !== 'image' || ready.draft.type !== 'image' ||
+      ready.draft.image.kind !== 'existing' || ready.mutation.kind === 'pending') return;
+
+    const generation = ++this.imageResolutionGeneration;
+    const image = await resolveImageState(baseline, this.imageStore);
+    if (generation !== this.imageResolutionGeneration) return;
+    const current = this.currentReady();
+    if (!current || current.draft.type !== 'image' || current.draft.image.kind !== 'existing') return;
+    if (current.draft.image.path !== baseline.imagePath) return;
+    this.state = this.readyState(current.draft, image.ok ? image.value : { kind: 'unavailable', error: image.error },
+      current.fieldErrors, current.screenError, current.mutation,
+      current.discardConfirmationOpen, current.conflictConfirmationOpen);
+    this.emitChange();
+  }
+
+  private handleMissingEditTarget(): void {
+    if (this.params.mode !== 'edit') return;
+    this.state = { kind: 'missing' };
+    this.emitChange();
+    if (this.missingTargetHandled) return;
+    this.missingTargetHandled = true;
+    this.mailbox.publish({
+      destination: 'Inbox',
+      operation: 'edit',
+      itemId: this.params.id,
+      feedback: { kind: 'info', message: 'That item no longer exists. Returned to Inbox.' },
+    });
+    this.navigation.returnToList('Inbox');
   }
 
   private async retry(): Promise<void> {

@@ -22,6 +22,14 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "plugins": ["expo-sqlite", "expo-image-picker"]
+    "plugins": [
+      "expo-sqlite",
+      [
+        "expo-image-picker",
+        {
+          "microphonePermission": false
+        }
+      ]
+    ]
   }
 }

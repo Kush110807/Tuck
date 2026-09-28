@@ -1,10 +1,11 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { DetailScreenProps, SavedItem } from '../../contracts';
 import { colors, radii, space } from '../../theme/tokens';
 import { ActionButton } from '../components/ActionButton';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { FeedbackBanner } from '../components/FeedbackBanner';
+import { getImagePresentation } from '../components/imagePresentation';
 import { ErrorPanel, InlineError, LoadingPanel } from '../components/ScreenStates';
 import { TagChip } from '../components/TagChip';
 
@@ -39,6 +40,9 @@ export function DetailScreen({
   onDismissFeedback,
 }: DetailScreenProps) {
   const pending = mutation.kind === 'pending';
+  const resolvedUri = state.kind === 'ready' && state.image.kind === 'available' ? state.image.uri : null;
+  const [imageRenderFailed, setImageRenderFailed] = useState(false);
+  useEffect(() => setImageRenderFailed(false), [resolvedUri]);
 
   let content: ReactNode;
   if (state.kind === 'loading') {
@@ -54,6 +58,7 @@ export function DetailScreen({
     content = <ErrorPanel title="Couldn’t load item" error={state.error} onRetry={onRetry} />;
   } else {
     const { item, image } = state;
+    const imagePresentation = getImagePresentation(image, imageRenderFailed);
     content = (
       <>
         {mutation.kind === 'failed' ? <InlineError message={mutation.error.message} /> : null}
@@ -68,12 +73,23 @@ export function DetailScreen({
           <Text accessibilityRole="header" style={styles.title}>{item.title}</Text>
 
           {item.type === 'image' ? (
-            image.kind === 'available' ? (
-              <Image source={{ uri: image.uri }} resizeMode="contain" accessibilityLabel={`${item.title} image`} style={styles.image} />
+            imagePresentation.kind === 'image' ? (
+              <Image
+                source={{ uri: imagePresentation.uri }}
+                resizeMode="contain"
+                accessibilityLabel={`${item.title} image`}
+                onError={() => setImageRenderFailed(true)}
+                style={styles.image}
+              />
             ) : (
               <View style={styles.imageMissing}>
-                <Text style={styles.imageMissingTitle}>{image.kind === 'missing' ? 'Image file missing' : 'Image unavailable'}</Text>
-                <Text style={styles.muted}>The saved item details are still available.</Text>
+                <Text style={styles.imageMissingTitle}>{imagePresentation.title}</Text>
+                <Text style={styles.muted}>{imagePresentation.message}</Text>
+                {imagePresentation.reason === 'render-failed' ? (
+                  <ActionButton label="Retry image" onPress={() => setImageRenderFailed(false)} variant="secondary" />
+                ) : imagePresentation.reason === 'unavailable' ? (
+                  <ActionButton label="Retry image" onPress={onRetry} variant="secondary" />
+                ) : null}
               </View>
             )
           ) : null}

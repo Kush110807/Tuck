@@ -1,31 +1,49 @@
+import { useEffect, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { ImagePickerFieldProps } from '../../contracts';
 import { colors, minimumTouchSize, radii, space } from '../../theme/tokens';
+import { getImagePresentation } from './imagePresentation';
 
-export function ImagePickerField({ image, error, disabled, onPick }: ImagePickerFieldProps) {
+export function ImagePickerField({ image, error, disabled, onPick, onRetry }: ImagePickerFieldProps) {
+  const uri = image.kind === 'available' ? image.uri : null;
+  const [renderFailed, setRenderFailed] = useState(false);
+  useEffect(() => setRenderFailed(false), [uri]);
+
+  const presentation = getImagePresentation(image, renderFailed);
+  const retry = image.kind === 'unavailable' ? onRetry : renderFailed ? () => setRenderFailed(false) : undefined;
+
   return (
     <View style={styles.container}>
       <Text style={styles.label}>Image</Text>
       <View style={[styles.preview, error && styles.previewError]}>
-        {image.kind === 'available' ? (
+        {presentation.kind === 'image' ? (
           <Image
-            source={{ uri: image.uri }}
+            source={{ uri: presentation.uri }}
             resizeMode="cover"
             accessibilityLabel="Selected image preview"
+            onError={() => setRenderFailed(true)}
             style={styles.image}
           />
         ) : (
           <View style={styles.placeholder}>
-            <Text style={styles.placeholderTitle}>{image.kind === 'missing' ? 'Image file missing' : 'No image selected'}</Text>
-            <Text style={styles.placeholderMessage}>
-              {image.kind === 'missing'
-                ? 'The saved image cannot be found. You can choose a replacement.'
-                : 'Choose a JPEG, PNG or WebP image.'}
-            </Text>
+            <Text style={styles.placeholderTitle}>{presentation.title}</Text>
+            <Text style={styles.placeholderMessage}>{presentation.message}</Text>
           </View>
         )}
       </View>
       {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+      {retry ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Retry image preview"
+          accessibilityState={{ disabled }}
+          disabled={disabled}
+          onPress={retry}
+          style={({ pressed }) => [styles.button, disabled && styles.disabled, pressed && !disabled && styles.pressed]}
+        >
+          <Text style={styles.buttonText}>Retry image</Text>
+        </Pressable>
+      ) : null}
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={image.kind === 'none' ? 'Choose image' : 'Replace image'}

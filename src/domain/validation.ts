@@ -17,7 +17,7 @@ export const MAX_TAG_CHARS = 24;
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 const ITEM_TYPES = new Set<ItemType>(['note', 'link', 'image']);
-const IMAGE_MIME_TYPES = new Set<ImageSelection['mimeType']>(['image/jpeg', 'image/png', 'image/webp']);
+const IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
 export type ValidatedTags = Readonly<{
   display: readonly string[];
@@ -129,7 +129,10 @@ export function validateImageSelectionShape(selection: unknown): ValidationResul
     return { ok: false, error: { code: 'IMAGE_UNSUPPORTED', message: 'Select a JPEG, PNG, or WebP image.', field: 'image' } };
   }
   const candidate = selection as Partial<ImageSelection>;
-  if (typeof candidate.temporaryUri !== 'string' || !candidate.temporaryUri || !IMAGE_MIME_TYPES.has(candidate.mimeType as ImageSelection['mimeType'])) {
+  if (typeof candidate.temporaryUri !== 'string' || !candidate.temporaryUri) {
+    return { ok: false, error: { code: 'IMAGE_UNSUPPORTED', message: 'Select a JPEG, PNG, or WebP image.', field: 'image' } };
+  }
+  if (candidate.mimeType !== undefined && candidate.mimeType !== null && !IMAGE_MIME_TYPES.has(candidate.mimeType)) {
     return { ok: false, error: { code: 'IMAGE_UNSUPPORTED', message: 'Select a JPEG, PNG, or WebP image.', field: 'image' } };
   }
   if (candidate.reportedBytes !== undefined && (!Number.isFinite(candidate.reportedBytes) || candidate.reportedBytes < 0)) {

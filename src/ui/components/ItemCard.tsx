@@ -1,6 +1,8 @@
+import { useEffect, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { ItemCardProps, SavedItem } from '../../contracts';
 import { colors, minimumTouchSize, radii, space } from '../../theme/tokens';
+import { getImagePresentation } from './imagePresentation';
 
 function itemPreview(item: SavedItem): string {
   if (item.type === 'note') return item.body;
@@ -12,6 +14,10 @@ const typeLabels = { note: 'Note', link: 'Link', image: 'Image' } as const;
 
 export function ItemCard({ row, onPress }: ItemCardProps) {
   const { item, image } = row;
+  const uri = image.kind === 'available' ? image.uri : null;
+  const [renderFailed, setRenderFailed] = useState(false);
+  useEffect(() => setRenderFailed(false), [uri]);
+  const imagePresentation = getImagePresentation(image, renderFailed);
   return (
     <Pressable
       accessibilityRole="button"
@@ -21,11 +27,17 @@ export function ItemCard({ row, onPress }: ItemCardProps) {
       style={({ pressed }) => [styles.card, pressed && styles.pressed]}
     >
       {item.type === 'image' ? (
-        image.kind === 'available' ? (
-          <Image source={{ uri: image.uri }} resizeMode="cover" accessibilityLabel={`${item.title} preview`} style={styles.image} />
+        imagePresentation.kind === 'image' ? (
+          <Image
+            source={{ uri: imagePresentation.uri }}
+            resizeMode="cover"
+            accessibilityLabel={`${item.title} preview`}
+            onError={() => setRenderFailed(true)}
+            style={styles.image}
+          />
         ) : (
-          <View style={styles.imagePlaceholder} accessibilityLabel={image.kind === 'missing' ? 'Image file missing' : 'Image preview unavailable'}>
-            <Text style={styles.imagePlaceholderText}>{image.kind === 'missing' ? 'Image missing' : 'Image'}</Text>
+          <View style={styles.imagePlaceholder} accessibilityLabel={imagePresentation.title}>
+            <Text style={styles.imagePlaceholderText}>{imagePresentation.title}</Text>
           </View>
         )
       ) : null}

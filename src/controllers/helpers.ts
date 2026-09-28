@@ -37,21 +37,19 @@ export function collectAvailableTags(items: readonly SavedItem[]): readonly stri
 export async function resolveImageState(
   item: SavedItem,
   imageStore: ImageStore,
-  degradeResolutionFailureToMissing = false,
 ): Promise<{ ok: true; value: ImageViewState } | { ok: false; error: AppError }> {
   if (item.type !== 'image') return { ok: true, value: { kind: 'none' } };
   try {
     const result = await imageStore.resolve(item.imagePath);
     if (!result.ok) {
-      if (degradeResolutionFailureToMissing) return { ok: true, value: { kind: 'missing' } };
-      return result;
+      return { ok: true, value: { kind: 'unavailable', error: result.error } };
     }
     return result.value.kind === 'available'
       ? { ok: true, value: { kind: 'available', uri: result.value.uri } }
       : { ok: true, value: { kind: 'missing' } };
   } catch {
     const error: AppError = { code: 'INVALID_IMAGE_PATH', message: 'The saved image could not be resolved.' };
-    return degradeResolutionFailureToMissing ? { ok: true, value: { kind: 'missing' } } : { ok: false, error };
+    return { ok: true, value: { kind: 'unavailable', error } };
   }
 }
 
@@ -60,7 +58,7 @@ export async function buildListRows(
   imageStore: ImageStore,
 ): Promise<readonly ItemListRow[]> {
   return Promise.all(items.map(async item => {
-    const image = await resolveImageState(item, imageStore, true);
-    return { item, image: image.ok ? image.value : { kind: 'missing' } } as ItemListRow;
+    const image = await resolveImageState(item, imageStore);
+    return { item, image: image.ok ? image.value : { kind: 'unavailable', error: image.error } } as ItemListRow;
   }));
 }

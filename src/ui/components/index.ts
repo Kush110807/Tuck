@@ -5,6 +5,7 @@ export { FeedbackBanner } from './FeedbackBanner';
 export { FilterBar } from './FilterBar';
 export { FormField } from './FormField';
 export { ImagePickerField } from './ImagePickerField';
+export { getImagePresentation } from './imagePresentation';
 export { ItemCard } from './ItemCard';
 export { SearchField } from './SearchField';
 export { TagChip } from './TagChip';

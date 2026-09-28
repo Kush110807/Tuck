@@ -19,9 +19,11 @@ export type SavedItem =
   | (ItemBase & { type: 'link'; body: null; url: string; imagePath: null })
   | (ItemBase & { type: 'image'; body: string | null; url: null; imagePath: RelativeImagePath });
 
+export type SupportedImageMimeType = 'image/jpeg' | 'image/png' | 'image/webp';
 export type ImageSelection = {
   temporaryUri: string;
-  mimeType: 'image/jpeg' | 'image/png' | 'image/webp';
+  /** Picker metadata is advisory only; the persistent store validates the bytes. */
+  mimeType?: SupportedImageMimeType | null;
   reportedBytes?: number;
 };
 
@@ -86,7 +88,8 @@ export type MutationState =
 export type ImageViewState =
   | { kind: 'none' }
   | { kind: 'available'; uri: string }
-  | { kind: 'missing' };
+  | { kind: 'missing' }
+  | { kind: 'unavailable'; error: AppError };
 export type ItemListRow = { item: SavedItem; image: ImageViewState };
 
 /** App initialization is separate from a successfully loaded empty inbox. */
@@ -183,6 +186,7 @@ export interface EditorScreenProps {
   onTagEntryChange(value: string): void; onAddTag(): void;
   onRemoveTag(tagKey: string): void; onPickImage(): void;
   onSave(): void; onCancel(): void; onRetry(): void;
+  onRetryImage(): void;
   onConfirmDiscard(): void; onKeepEditing(): void;
   onConfirmConflictOverwrite(): void; onCancelConflictOverwrite(): void;
   onBackToInbox(): void;
@@ -207,7 +211,7 @@ export interface FormFieldProps {
   error?: string; multiline?: boolean; maxLength?: number;
 }
 export interface ImagePickerFieldProps {
-  image: ImageViewState; error?: string; disabled: boolean; onPick(): void;
+  image: ImageViewState; error?: string; disabled: boolean; onPick(): void; onRetry?(): void;
 }
 export interface EmptyStateProps { title: string; message: string; actionLabel?: string; onAction?(): void }
 export interface FeedbackBannerProps { feedback: Feedback; onDismiss(): void }

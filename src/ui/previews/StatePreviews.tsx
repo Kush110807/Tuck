@@ -123,6 +123,7 @@ const editorBase: Omit<EditorScreenProps, 'state' | 'mode'> = {
   onSave: noOp,
   onCancel: noOp,
   onRetry: noOp,
+  onRetryImage: noOp,
   onConfirmDiscard: noOp,
   onKeepEditing: noOp,
   onConfirmConflictOverwrite: noOp,

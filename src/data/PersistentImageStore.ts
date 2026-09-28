@@ -1,15 +1,13 @@
 import { Directory, File, Paths } from 'expo-file-system';
+import { Image } from 'react-native';
 import type { AppError, ImageSelection, ImageStore, RelativeImagePath, Result } from '../contracts';
+import { detectSupportedImageFormat } from '../domain/imageFormat';
 import { MAX_IMAGE_BYTES, validateImageSelectionShape } from '../domain/validation';
 
 const IMAGE_DIRECTORY = 'images';
 const SAFE_IMAGE_PATH = /^images\/[A-Za-z0-9][A-Za-z0-9._-]*\.(?:jpg|jpeg|png|webp)$/i;
 
-const EXTENSIONS: Record<ImageSelection['mimeType'], 'jpg' | 'png' | 'webp'> = {
-  'image/jpeg': 'jpg',
-  'image/png': 'png',
-  'image/webp': 'webp',
-};
+type ImageDecoder = (uri: string) => Promise<{ width: number; height: number }>;
 
 function imageError(code: AppError['code'], message: string): AppError {
   return { code, message, field: 'image' };
@@ -33,9 +31,23 @@ export function isSafeAppImagePath(path: string): path is RelativeImagePath {
   return true;
 }
 
+async function isNativeDecodable(uri: string, decodeImage: ImageDecoder): Promise<boolean> {
+  try {
+    const dimensions = await decodeImage(uri);
+    return Number.isFinite(dimensions.width) && dimensions.width > 0 &&
+      Number.isFinite(dimensions.height) && dimensions.height > 0;
+  } catch {
+    return false;
+  }
+}
+
 /** Persistent, app-owned image storage rooted at the Expo document directory. */
 export class PersistentImageStore implements ImageStore {
   private readonly imagesDirectory = new Directory(Paths.document, IMAGE_DIRECTORY);
+
+  constructor(
+    private readonly decodeImage: ImageDecoder = uri => Image.getSize(uri),
+  ) {}
 
   /** B-internal startup hook used by SQLiteItemRepository before reconciliation. */
   prepare(): Result<void> {
@@ -55,24 +67,42 @@ export class PersistentImageStore implements ImageStore {
     if (!prepared.ok) return prepared;
 
     let source: File;
+    let bytes: Uint8Array;
     try {
       source = new File(selection.temporaryUri);
       if (!source.exists) {
         return { ok: false, error: imageError('IMAGE_COPY_FAILED', 'The selected image is no longer available.') };
       }
-      if (source.size > MAX_IMAGE_BYTES) {
+      if (typeof source.size === 'number' && source.size > MAX_IMAGE_BYTES) {
         return {
           ok: false,
           error: imageError('IMAGE_TOO_LARGE', `Image must be 10 MiB or smaller; selected file is ${source.size} bytes.`),
+        };
+      }
+      bytes = await source.bytes();
+      if (bytes.byteLength > MAX_IMAGE_BYTES) {
+        return {
+          ok: false,
+          error: imageError('IMAGE_TOO_LARGE', `Image must be 10 MiB or smaller; selected file is ${bytes.byteLength} bytes.`),
         };
       }
     } catch {
       return { ok: false, error: imageError('IMAGE_COPY_FAILED', 'Could not read the selected image.') };
     }
 
-    const extension = EXTENSIONS[selection.mimeType];
+    const detected = detectSupportedImageFormat(bytes);
+    if (!detected) {
+      return { ok: false, error: imageError('IMAGE_UNSUPPORTED', 'The selected file is not a valid JPEG, PNG or WebP image.') };
+    }
+    if (selection.mimeType && selection.mimeType !== detected.mimeType) {
+      return { ok: false, error: imageError('IMAGE_UNSUPPORTED', 'The selected image type does not match its file contents.') };
+    }
+    if (!(await isNativeDecodable(source.uri, this.decodeImage))) {
+      return { ok: false, error: imageError('IMAGE_UNSUPPORTED', 'The selected image is corrupt or cannot be decoded.') };
+    }
+
     for (let attempt = 0; attempt < 4; attempt += 1) {
-      const filename = `${createUuid()}.${extension}`;
+      const filename = `${createUuid()}.${detected.extension}`;
       const relativePath = `${IMAGE_DIRECTORY}/${filename}` as RelativeImagePath;
       const destination = new File(this.imagesDirectory, filename);
       if (destination.exists) continue;
@@ -80,9 +110,13 @@ export class PersistentImageStore implements ImageStore {
       try {
         await source.copy(destination);
         if (!destination.exists) throw new Error('Image copy did not create a destination file.');
-        if (destination.size > MAX_IMAGE_BYTES) {
+        if (typeof destination.size === 'number' && destination.size > MAX_IMAGE_BYTES) {
           try { destination.delete(); } catch { /* best effort; repository reconciliation catches leftovers */ }
           return { ok: false, error: imageError('IMAGE_TOO_LARGE', 'Image must be 10 MiB or smaller.') };
+        }
+        if (!(await isNativeDecodable(destination.uri, this.decodeImage))) {
+          try { destination.delete(); } catch { /* reconciliation catches a failed cleanup */ }
+          return { ok: false, error: imageError('IMAGE_UNSUPPORTED', 'The copied image could not be decoded.') };
         }
         return { ok: true, value: relativePath };
       } catch {

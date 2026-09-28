@@ -12,7 +12,7 @@ import type {
   MutationMailbox,
   NavigationActions,
 } from '../contracts';
-import { buildListRows, collectAvailableTags, unexpectedRepositoryError } from './helpers';
+import { buildListRows, collectAvailableTags, tagKey, unexpectedRepositoryError } from './helpers';
 import { ObservableController } from './observable';
 
 const defaultQuery = (archived: boolean): ItemQuery => ({ archived, text: '', type: 'all', tagKey: null });
@@ -21,6 +21,7 @@ abstract class BaseListController extends ObservableController {
   protected state: ListState;
   protected feedback: Feedback | null = null;
   private generation = 0;
+  private readonly knownTagDisplays = new Map<string, string>();
 
   protected constructor(
     protected readonly route: ListRoute,
@@ -88,11 +89,22 @@ abstract class BaseListController extends ObservableController {
 
       const rows = await buildListRows(result.value, this.imageStore);
       if (generation !== this.generation) return;
+      for (const item of result.value) {
+        for (const tag of item.tags) this.knownTagDisplays.set(tagKey(tag), tag);
+      }
+      const availableTags = [...collectAvailableTags(result.value)];
+      if (query.tagKey !== null) {
+        const selectedKey = tagKey(query.tagKey);
+        const selectedDisplay = this.knownTagDisplays.get(selectedKey);
+        if (selectedDisplay && !availableTags.some(tag => tagKey(tag) === selectedKey)) {
+          availableTags.unshift(selectedDisplay);
+        }
+      }
       this.state = {
         kind: 'ready',
         query,
         rows,
-        availableTags: collectAvailableTags(result.value),
+        availableTags,
       };
       this.emitChange();
     } catch {

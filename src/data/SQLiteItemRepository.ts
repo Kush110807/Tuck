@@ -47,6 +47,7 @@ type JoinedItemRow = ItemRow & {
 
 type TagRow = { tag_key: string; tag_display: string; tag_ordinal: number };
 type VersionRow = { user_version: number };
+type IntegrityRow = { quick_check?: string; integrity_check?: string };
 type CleanupRow = { path: string };
 type ImageReferenceRow = { image_path: string };
 
@@ -173,6 +174,7 @@ export class SQLiteItemRepository implements ItemRepository {
   private readonly now: () => number;
   private readonly createId: () => string;
   private operationTail: Promise<void> = Promise.resolve();
+  private reconciliationPending = true;
 
   constructor(
     private readonly imageStore: PersistentImageStore,
@@ -202,17 +204,14 @@ export class SQLiteItemRepository implements ItemRepository {
         const db = this.db;
         await db.execAsync('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
         await this.migrate(db);
+        await this.verifyDatabaseIntegrity(db);
 
-        const prepared = this.imageStore.prepare();
-        if (!prepared.ok) return { ok: false, error: initError(prepared.error.message) };
-
-        const cleanup = await this.retryPendingFileCleanupUnsafe(db);
-        if (!cleanup.ok) return { ok: false, error: initError(cleanup.error.message) };
-
-        const reconcile = await this.reconcileUnreferencedImages(db);
-        if (!reconcile.ok) return { ok: false, error: initError(reconcile.error.message) };
-
+        // Metadata is usable once DB initialization succeeds. Image-directory
+        // maintenance is deliberately best-effort so a recoverable filesystem
+        // problem cannot hide notes, links, or image metadata.
         this.initialized = true;
+        this.reconciliationPending = true;
+        await this.runImageMaintenanceBestEffort(db);
         return { ok: true, value: undefined };
       } catch {
         return { ok: false, error: initError('Could not initialize local storage.') };
@@ -324,7 +323,7 @@ export class SQLiteItemRepository implements ItemRepository {
         return { ok: false, error: dbError('Could not save the item.') };
       }
 
-      await this.retryPendingFileCleanupUnsafe(db);
+      await this.runImageMaintenanceBestEffort(db);
       return { ok: true, value: created };
     });
   }
@@ -401,7 +400,7 @@ export class SQLiteItemRepository implements ItemRepository {
 
       if (!committedItem) return { ok: false, error: dbError('Update did not produce a committed item.') };
       if (oldImagePath) await this.removeQueuedPath(db, oldImagePath);
-      await this.retryPendingFileCleanupUnsafe(db);
+      await this.runImageMaintenanceBestEffort(db);
       return { ok: true, value: committedItem };
     });
   }
@@ -442,7 +441,7 @@ export class SQLiteItemRepository implements ItemRepository {
       }
 
       if (!committedItem) return { ok: false, error: dbError('Archive operation did not produce a committed item.') };
-      await this.retryPendingFileCleanupUnsafe(db);
+      await this.runImageMaintenanceBestEffort(db);
       return { ok: true, value: committedItem };
     });
   }
@@ -475,7 +474,7 @@ export class SQLiteItemRepository implements ItemRepository {
       }
 
       if (imagePath) await this.removeQueuedPath(db, imagePath);
-      await this.retryPendingFileCleanupUnsafe(db);
+      await this.runImageMaintenanceBestEffort(db);
       return { ok: true, value: undefined };
     });
   }
@@ -484,8 +483,22 @@ export class SQLiteItemRepository implements ItemRepository {
     return this.serialized(async () => {
       const database = this.requireDb();
       if (!database.ok) return database;
-      return this.retryPendingFileCleanupUnsafe(database.value);
+      const cleanup = await this.retryPendingFileCleanupUnsafe(database.value);
+      if (!cleanup.ok) return cleanup;
+      const reconcile = await this.reconcileUnreferencedImages(database.value);
+      if (!reconcile.ok) {
+        this.reconciliationPending = true;
+        return { ok: false, error: reconcile.error };
+      }
+      this.reconciliationPending = false;
+      return cleanup;
     });
+  }
+
+  private async verifyDatabaseIntegrity(db: Db): Promise<void> {
+    const row = await db.getFirstAsync<IntegrityRow>('PRAGMA quick_check');
+    const result = row?.quick_check ?? row?.integrity_check;
+    if (result !== 'ok') throw new Error('SQLite quick_check failed.');
   }
 
   private async migrate(db: Db): Promise<void> {
@@ -611,6 +624,19 @@ export class SQLiteItemRepository implements ItemRepository {
     } catch {
       return { ok: false, error: dbError('Could not retry pending image cleanup.') };
     }
+  }
+
+  private async runImageMaintenanceBestEffort(db: Db): Promise<void> {
+    // A cleanup failure keeps queue rows in place; there is nothing unsafe to
+    // infer from that failure and metadata access remains available.
+    await this.retryPendingFileCleanupUnsafe(db);
+    if (!this.reconciliationPending) return;
+
+    // Reconciliation reads the complete DB reference set before enumerating or
+    // deleting app-owned files. A failed enumeration returns no paths and thus
+    // cannot trigger deletion from incomplete reference information.
+    const reconcile = await this.reconcileUnreferencedImages(db);
+    if (reconcile.ok) this.reconciliationPending = false;
   }
 
   private async reconcileUnreferencedImages(db: Db): Promise<Result<void>> {

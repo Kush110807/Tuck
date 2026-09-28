@@ -104,6 +104,7 @@ export function EditorScreen(props: EditorScreenProps) {
                 error={fieldErrors.image}
                 disabled={pending}
                 onPick={props.onPickImage}
+                onRetry={props.onRetryImage}
               />
               <FormField
                 label="Caption"
