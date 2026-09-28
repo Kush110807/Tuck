@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('expo-sqlite', () => ({ openDatabaseAsync: vi.fn() }));
 vi.mock('expo-file-system', () => ({ Directory: class {}, File: class {}, Paths: { document: 'file:///tmp' } }));
+vi.mock('react-native', () => ({ Image: { getSize: vi.fn() } }));
 
 import * as SQLite from 'expo-sqlite';
 import type { RelativeImagePath, Result } from '../../src/contracts';
@@ -17,6 +18,7 @@ function createFakeDatabase() {
     runAsync: vi.fn(async () => ({ changes: 1, lastInsertRowId: 0 })),
     getFirstAsync: vi.fn(async (sql: string) => {
       if (sql.includes('PRAGMA user_version')) return { user_version: 1 };
+      if (sql.includes('PRAGMA quick_check')) return { quick_check: 'ok' };
       if (sql.includes('COUNT(*) AS count')) return { count: 1 };
       return null;
     }),

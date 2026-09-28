@@ -21,6 +21,34 @@ describe('DetailController', () => {
     expect(controller.props.state).toEqual({ kind: 'ready', item: image, image: { kind: 'missing' } });
   });
 
+  it('keeps image metadata usable on resolution failure and recovers on retry', async () => {
+    const repository = new MockItemRepository();
+    repository.getImpl = async () => ({ ok: true, value: image });
+    const images = new MockImageStore();
+    let attempts = 0;
+    images.resolveImpl = async () => ++attempts === 1
+      ? ({ ok: false, error: { code: 'OPEN_FAILED', message: 'Storage temporarily unavailable.', field: 'image' } } as const)
+      : ({ ok: true, value: { kind: 'available', uri: 'file:///images/recovered.jpg' } } as const);
+    const controller = createDetailController(image.id, 'Inbox', repository, images,
+      new MockLinkOpener(), new MockMailbox(), new MockNavigation());
+
+    await controller.refresh();
+    expect(controller.props.state).toEqual({
+      kind: 'ready',
+      item: image,
+      image: { kind: 'unavailable', error: { code: 'OPEN_FAILED', message: 'Storage temporarily unavailable.', field: 'image' } },
+    });
+
+    controller.props.onRetry();
+    await flushAsync();
+    await flushAsync();
+    expect(controller.props.state).toEqual({
+      kind: 'ready',
+      item: image,
+      image: { kind: 'available', uri: 'file:///images/recovered.jpg' },
+    });
+  });
+
   it('guards duplicate delete confirmation taps and publishes after repository success', async () => {
     const repository = new MockItemRepository();
     repository.getImpl = async () => ({ ok: true, value: note });

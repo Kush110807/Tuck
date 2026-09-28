@@ -1,33 +1,55 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ExpoImagePickerAdapter, ReactNativeLinkOpener } from '../../src/controllers';
 
 describe('controller adapters', () => {
   it('maps image-picker cancellation separately from failure', async () => {
     const adapter = new ExpoImagePickerAdapter({
-      requestMediaLibraryPermissionsAsync: async () => ({ granted: true }),
       launchImageLibraryAsync: async () => ({ canceled: true, assets: null }),
     });
     await expect(adapter.pickOne()).resolves.toEqual({ kind: 'cancelled' });
   });
 
-  it('maps supported picker assets to ImageSelection and rejects denied permission', async () => {
-    const selected = new ExpoImagePickerAdapter({
-      requestMediaLibraryPermissionsAsync: async () => ({ granted: true }),
-      launchImageLibraryAsync: async () => ({
-        canceled: false,
-        assets: [{ uri: 'file:///tmp/photo.webp', mimeType: 'image/webp', fileSize: 1234 }],
-      }),
+  it('launches the system library picker without gating on media-library permission', async () => {
+    const requestPermission = vi.fn(async () => ({ granted: false }));
+    const launch = vi.fn(async () => ({
+      canceled: false,
+      assets: [{ uri: 'file:///tmp/photo.webp', mimeType: 'image/webp', fileSize: 1234 }],
+    }));
+    const adapter = new ExpoImagePickerAdapter({
+      requestMediaLibraryPermissionsAsync: requestPermission,
+      launchImageLibraryAsync: launch,
     });
-    await expect(selected.pickOne()).resolves.toEqual({
+
+    await expect(adapter.pickOne()).resolves.toEqual({
       kind: 'selected',
       selection: { temporaryUri: 'file:///tmp/photo.webp', mimeType: 'image/webp', reportedBytes: 1234 },
     });
+    expect(requestPermission).not.toHaveBeenCalled();
+    expect(launch).toHaveBeenCalledTimes(1);
+  });
 
-    const denied = new ExpoImagePickerAdapter({
-      requestMediaLibraryPermissionsAsync: async () => ({ granted: false }),
-      launchImageLibraryAsync: async () => ({ canceled: true, assets: null }),
+  it('keeps a valid picker result when MIME metadata is unavailable so byte validation can decide format', async () => {
+    const adapter = new ExpoImagePickerAdapter({
+      launchImageLibraryAsync: async () => ({
+        canceled: false,
+        assets: [{ uri: 'content://provider/photo/42', mimeType: null, fileSize: 4321 }],
+      }),
     });
-    expect((await denied.pickOne()).kind).toBe('failed');
+
+    await expect(adapter.pickOne()).resolves.toEqual({
+      kind: 'selected',
+      selection: { temporaryUri: 'content://provider/photo/42', mimeType: null, reportedBytes: 4321 },
+    });
+  });
+
+  it('maps picker/provider launch errors to PICKER_FAILED without inventing a permission failure', async () => {
+    const adapter = new ExpoImagePickerAdapter({
+      launchImageLibraryAsync: async () => { throw new Error('provider failed'); },
+    });
+    const result = await adapter.pickOne();
+    expect(result.kind).toBe('failed');
+    if (result.kind !== 'failed') throw new Error('expected failure');
+    expect(result.error.code).toBe('PICKER_FAILED');
   });
 
   it('opens only http(s) URLs and maps native failures to OPEN_FAILED', async () => {

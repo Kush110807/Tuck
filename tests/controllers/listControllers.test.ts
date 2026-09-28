@@ -75,4 +75,35 @@ describe('InboxController', () => {
     await flushAsync();
     expect(repository.listCalls[0]?.archived).toBe(false);
   });
+
+  it('keeps the selected tag visible and clearable when another filter produces zero matches', async () => {
+    const repository = new MockItemRepository();
+    repository.listImpl = async query => {
+      if (query.text === 'nothing') return { ok: true, value: [] };
+      return { ok: true, value: [note] };
+    };
+    const controller = createInboxController(repository, new MockImageStore(), new MockMailbox(), new MockNavigation());
+
+    await controller.refresh();
+    if (controller.props.state.kind !== 'ready') throw new Error('expected ready');
+    const selectedTag = controller.props.state.availableTags[0];
+    expect(selectedTag).toBe('Study');
+
+    controller.props.onQueryChange({ archived: false, text: '', type: 'all', tagKey: 'study' });
+    await flushAsync();
+    controller.props.onQueryChange({ archived: false, text: 'nothing', type: 'all', tagKey: 'study' });
+    await flushAsync();
+    if (controller.props.state.kind !== 'ready') throw new Error('expected ready');
+    expect(controller.props.state.rows).toEqual([]);
+    expect(controller.props.state.query.tagKey).toBe('study');
+    expect(controller.props.state.availableTags).toContain('Study');
+
+    controller.props.onQueryChange({ ...controller.props.state.query, tagKey: null });
+    await flushAsync();
+    expect(repository.listCalls.at(-1)?.tagKey).toBeNull();
+    controller.props.onQueryChange({ archived: false, text: '', type: 'all', tagKey: null });
+    await flushAsync();
+    if (controller.props.state.kind !== 'ready') throw new Error('expected ready');
+    expect(controller.props.state.rows[0]?.item.id).toBe(note.id);
+  });
 });

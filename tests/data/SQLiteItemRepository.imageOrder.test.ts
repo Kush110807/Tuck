@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('expo-sqlite', () => ({ openDatabaseAsync: vi.fn() }));
 vi.mock('expo-file-system', () => ({ Directory: class {}, File: class {}, Paths: { document: 'file:///tmp' } }));
+vi.mock('react-native', () => ({ Image: { getSize: vi.fn() } }));
 
 import * as SQLite from 'expo-sqlite';
 import type { ImageSelection, RelativeImagePath, Result } from '../../src/contracts';
@@ -23,6 +24,7 @@ function createDatabase(events: string[], options: { failItemUpdate?: boolean } 
   db.execAsync = vi.fn(async () => undefined);
   db.getFirstAsync = vi.fn(async (sql: string) => {
     if (sql.includes('PRAGMA user_version')) return { user_version: 1 };
+    if (sql.includes('PRAGMA quick_check')) return { quick_check: 'ok' };
     if (sql.includes('COUNT(*) AS count')) return { count: pending.size };
     if (sql.includes('FROM items WHERE id = ?')) return imageRow;
     return null;
@@ -127,5 +129,27 @@ describe('SQLiteItemRepository image operation ordering', () => {
 
     expect(events.indexOf(`queue:${oldPath}`)).toBeLessThan(events.indexOf('db:delete-item'));
     expect(events.indexOf('db:delete-item')).toBeLessThan(events.indexOf(`remove:${oldPath}`));
+  });
+
+  it('retains the original image and metadata when replacement validation/copy fails before the transaction', async () => {
+    const events: string[] = [];
+    const { repository, imageStore } = await initializedRepository(events);
+    vi.mocked(imageStore.copySelected).mockResolvedValue({
+      ok: false,
+      error: { code: 'IMAGE_UNSUPPORTED', message: 'Corrupt image.', field: 'image' },
+    });
+
+    const result = await repository.update({
+      id: imageRow.id, type: 'image', expectedUpdatedAt: imageRow.updated_at,
+      changes: { image: { kind: 'replace', selection } },
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      error: { code: 'IMAGE_UNSUPPORTED', message: 'Corrupt image.', field: 'image' },
+    });
+    expect(events).not.toContain(`queue:${oldPath}`);
+    expect(events).not.toContain('db:update-item');
+    expect(events).not.toContain(`remove:${oldPath}`);
   });
 });
