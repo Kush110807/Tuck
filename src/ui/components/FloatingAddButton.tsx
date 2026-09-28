@@ -4,7 +4,7 @@ import { AppIcon } from './AppIcon';
 
 export function FloatingAddButton({ onPress }: { onPress(): void }) {
   return (
-    <View pointerEvents="box-none" style={styles.layer}>
+    <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, styles.layer]}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Add to Tuck"
@@ -20,7 +20,7 @@ export function FloatingAddButton({ onPress }: { onPress(): void }) {
 }
 
 const styles = StyleSheet.create({
-  layer: { ...StyleSheet.absoluteFillObject, alignItems: 'flex-end', justifyContent: 'flex-end', paddingRight: space.lg, paddingBottom: space.lg },
+  layer: { alignItems: 'flex-end', justifyContent: 'flex-end', paddingRight: space.lg, paddingBottom: space.lg },
   fab: {
     width: fabSize,
     height: fabSize,
