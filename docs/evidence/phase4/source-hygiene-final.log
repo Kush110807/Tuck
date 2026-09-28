@@ -1,6 +1,6 @@
-Production preview/fixture imports:
+Production preview/fixture imports (production entry/controllers/data/navigation/domain/UI screens+components; preview-only directories intentionally excluded):
 PASS none found
-UI forbidden API imports:
+UI production forbidden API imports:
 PASS none found
-Fixture seeding scan:
+Fixture seeding scan in production wiring:
 PASS none found
