@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validateCreateInput, validateQuery, validateUpdateInput } from '../../src/domain';
+import { createSmartViewQuery, validateCollectionName, validateCreateInput, validateQuery, validateUpdateInput } from '../../src/domain';
 
 describe('domain validation and normalization', () => {
   it('trims persisted type-specific text while preserving URL schemes and normalizing tags', () => {
@@ -14,6 +14,7 @@ describe('domain validation and normalization', () => {
           display: ['Work', 'Deep Focus'],
           records: [{ key: 'work', display: 'Work' }, { key: 'deep focus', display: 'Deep Focus' }],
         },
+        collectionId: null,
       },
     });
 
@@ -29,7 +30,10 @@ describe('domain validation and normalization', () => {
 
   it('applies the same normalized comparison key to search and tag filters', () => {
     const query = validateQuery({ archived: false, text: '  DEEP   Focus ', type: 'all', tagKey: '  WoRK ' });
-    expect(query).toEqual({ ok: true, value: { archived: false, textKey: 'deep focus', type: 'all', tagKey: 'work' } });
+    expect(query).toEqual({ ok: true, value: {
+      archived: false, textKey: 'deep focus', type: 'all', tagKey: 'work',
+      collectionId: null, pinned: null, hasTags: null, hasCollection: null, sort: 'updated_desc',
+    } });
   });
 
   it('counts Unicode limits by code point rather than UTF-16 code unit', () => {
@@ -61,4 +65,36 @@ describe('domain validation and normalization', () => {
       value: { id: 'id-1', type: 'image', expectedUpdatedAt: 1, changes: { title: 'New title', caption: 'Caption' } },
     });
   });
+
+  it('normalizes and bounds Collection names without changing tag normalization rules', () => {
+    expect(validateCollectionName('  Work   Ideas  ')).toEqual({
+      ok: true,
+      value: { name: 'Work Ideas', nameKey: 'work ideas' },
+    });
+    const tooLong = validateCollectionName('😀'.repeat(61));
+    expect(tooLong.ok).toBe(false);
+    if (!tooLong.ok) expect(tooLong.error.field).toBe('collection');
+  });
+
+  it('represents Smart Views as derived active-item query presets', () => {
+    expect(createSmartViewQuery('pinned')).toEqual({
+      view: 'pinned',
+      query: {
+        archived: false, text: '', type: 'all', tagKey: null, collectionId: null,
+        pinned: true, hasTags: null, hasCollection: null, sort: 'updated_desc',
+      },
+    });
+    expect(createSmartViewQuery('untagged').query.hasTags).toBe(false);
+    expect(createSmartViewQuery('unfiled').query.hasCollection).toBe(false);
+  });
+
+  it('rejects contradictory tag and collection-presence filters', () => {
+    expect(validateQuery({
+      archived: false, text: '', type: 'all', tagKey: 'AI', hasTags: false,
+    }).ok).toBe(false);
+    expect(validateQuery({
+      archived: false, text: '', type: 'all', tagKey: null, collectionId: 'c1', hasCollection: false,
+    }).ok).toBe(false);
+  });
+
 });
