@@ -43,11 +43,16 @@ async function isNativeDecodable(uri: string, decodeImage: ImageDecoder): Promis
 
 /** Persistent, app-owned image storage rooted at the Expo document directory. */
 export class PersistentImageStore implements ImageStore {
-  private readonly imagesDirectory = new Directory(Paths.document, IMAGE_DIRECTORY);
+  private readonly imagesDirectory: Directory;
 
   constructor(
     private readonly decodeImage: ImageDecoder = uri => Image.getSize(uri),
-  ) {}
+    storageNamespace: string | null = null,
+  ) {
+    this.imagesDirectory = storageNamespace
+      ? new Directory(Paths.document, 'profiles', storageNamespace, IMAGE_DIRECTORY)
+      : new Directory(Paths.document, IMAGE_DIRECTORY);
+  }
 
   /** B-internal startup hook used by SQLiteItemRepository before reconciliation. */
   prepare(): Result<void> {

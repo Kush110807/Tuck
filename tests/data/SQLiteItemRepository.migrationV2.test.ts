@@ -64,7 +64,7 @@ async function initializeWith(db: SQLiteTestAdapter, store = imageStore()): Prom
   return repository;
 }
 
-describe('Phase 5B schema v2 migration', () => {
+describe('SQLite schema migration through Phase 6C v3', () => {
   it('migrates a realistic populated v1 database non-destructively and preserves cleanup state', async () => {
     const db = makeAdapter();
     seedPopulatedV1(db);
@@ -75,12 +75,12 @@ describe('Phase 5B schema v2 migration', () => {
 
     const repository = await initializeWith(db);
 
-    expect(db.raw.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 2 });
+    expect(db.raw.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 3 });
     const columns = db.raw.prepare('PRAGMA table_info(items)').all() as Array<{ name: string }>;
     expect(columns.map(column => column.name)).toEqual(expect.arrayContaining(['collection_id', 'pinned']));
 
     const afterItems = db.raw.prepare(
-      `SELECT id, type, title, body, url, image_path, created_at, updated_at, archived, collection_id, pinned
+      `SELECT id, type, title, body, url, image_path, asset_id, created_at, updated_at, archived, collection_id, pinned
          FROM items ORDER BY id`,
     ).all() as Array<Record<string, unknown>>;
     expect(afterItems).toHaveLength(beforeItems.length);
@@ -88,6 +88,8 @@ describe('Phase 5B schema v2 migration', () => {
       expect(item.collection_id).toBeNull();
       expect(item.pinned).toBe(0);
       const before = (beforeItems as Array<Record<string, unknown>>).find(row => row.id === item.id)!;
+      if (item.type === 'image') expect(typeof item.asset_id).toBe('string');
+      else expect(item.asset_id).toBeNull();
       for (const key of ['id', 'type', 'title', 'body', 'url', 'image_path', 'created_at', 'updated_at', 'archived']) {
         expect(item[key]).toEqual(before[key]);
       }
@@ -95,6 +97,10 @@ describe('Phase 5B schema v2 migration', () => {
     expect(db.raw.prepare('SELECT * FROM item_tags ORDER BY item_id, ordinal').all()).toEqual(beforeTags);
     expect(db.raw.prepare('SELECT * FROM pending_file_deletions ORDER BY path').all()).toEqual(beforeCleanup);
     expect(db.raw.prepare('SELECT COUNT(*) AS count FROM collections').get()).toMatchObject({ count: 0 });
+    expect(db.raw.prepare('SELECT profile_kind, account_id, sync_enabled FROM sync_profile WHERE singleton = 1').get())
+      .toMatchObject({ profile_kind: 'local-only', account_id: null, sync_enabled: 0 });
+    expect(db.raw.prepare('SELECT COUNT(*) AS count FROM sync_entity_state').get()).toMatchObject({ count: 4 });
+    expect(db.raw.prepare('SELECT COUNT(*) AS count FROM sync_outbox').get()).toMatchObject({ count: 0 });
 
     const note = await repository.get('note-1');
     expect(note).toMatchObject({ ok: true, value: { id: 'note-1', collectionId: null, pinned: false } });
@@ -107,7 +113,7 @@ describe('Phase 5B schema v2 migration', () => {
     const repository = await initializeWith(db, store);
 
     await expect(repository.initialize()).resolves.toEqual({ ok: true, value: undefined });
-    expect(db.raw.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 2 });
+    expect(db.raw.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 3 });
     expect(db.raw.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name='collections'").get())
       .toMatchObject({ count: 1 });
   });
@@ -134,13 +140,13 @@ describe('Phase 5B schema v2 migration', () => {
 
     db.setFailureHook(null);
     await expect(repository.initialize()).resolves.toEqual({ ok: true, value: undefined });
-    expect(db.raw.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 2 });
+    expect(db.raw.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 3 });
   });
 
   it('fails safely when the database schema is newer than supported', async () => {
     const db = makeAdapter();
     db.raw.exec(V1_SCHEMA_SQL);
-    db.raw.exec('PRAGMA user_version = 3;');
+    db.raw.exec('PRAGMA user_version = 4;');
     vi.mocked(SQLite.openDatabaseAsync).mockResolvedValue(db as never);
     const repository = new SQLiteItemRepository(imageStore());
 
@@ -148,7 +154,7 @@ describe('Phase 5B schema v2 migration', () => {
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error('expected safe initialization failure');
     expect(result.error.code).toBe('INIT_FAILED');
-    expect(db.raw.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 3 });
+    expect(db.raw.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 4 });
   });
 
   it('fails initialization when foreign_key_check finds an existing violation', async () => {

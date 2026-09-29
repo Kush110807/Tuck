@@ -15,7 +15,7 @@ const selection: ImageSelection = { temporaryUri: 'file:///tmp/new.jpg', mimeTyp
 
 const imageRow = {
   id: 'image-1', type: 'image' as const, title: 'Old title', body: 'Old caption', url: null,
-  image_path: oldPath, created_at: 1000, updated_at: 1000, archived: 0,
+  image_path: oldPath, asset_id: 'asset-old', created_at: 1000, updated_at: 1000, archived: 0, collection_id: null, pinned: 0,
 };
 
 function createDatabase(events: string[], options: { failItemUpdate?: boolean } = {}) {
@@ -23,9 +23,11 @@ function createDatabase(events: string[], options: { failItemUpdate?: boolean } 
   const db: Record<string, unknown> = {};
   db.execAsync = vi.fn(async () => undefined);
   db.getFirstAsync = vi.fn(async (sql: string) => {
-    if (sql.includes('PRAGMA user_version')) return { user_version: 2 };
+    if (sql.includes('PRAGMA user_version')) return { user_version: 3 };
     if (sql.includes('PRAGMA quick_check')) return { quick_check: 'ok' };
     if (sql.includes('COUNT(*) AS count')) return { count: pending.size };
+    if (sql.includes('FROM sync_profile')) return { profile_kind: 'local-only', account_id: null, device_id: 'device-local', sync_enabled: 0 };
+    if (sql.includes('FROM sync_entity_state')) return { entity_type: 'item', entity_id: imageRow.id, local_revision: 1, server_version: null, last_synced_local_revision: null };
     if (sql.includes('FROM items WHERE id = ?')) return imageRow;
     return null;
   });

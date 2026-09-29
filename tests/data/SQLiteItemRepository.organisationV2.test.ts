@@ -205,13 +205,13 @@ describe('Phase 5B query, sort, tag aggregation, and Library overview', () => {
     db.raw.prepare('INSERT INTO collections (id, name, name_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
       .run('research', 'Research', 'research', 1, 1);
     const insertItem = db.raw.prepare(
-      `INSERT INTO items (id, type, title, body, url, image_path, created_at, updated_at, archived, collection_id, pinned)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO items (id, type, title, body, url, image_path, asset_id, created_at, updated_at, archived, collection_id, pinned)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
-    insertItem.run('a', 'note', 'beta', 'Deep focus pricing', null, null, 100, 500, 0, 'research', 1);
-    insertItem.run('b', 'link', 'Alpha', null, 'https://example.com/ai', null, 200, 500, 0, 'research', 0);
-    insertItem.run('c', 'image', 'Zulu', 'Visual reference', null, 'images/zulu.png', 200, 300, 0, null, 1);
-    insertItem.run('d', 'note', 'Archived', 'Deep archive', null, null, 50, 600, 1, 'research', 1);
+    insertItem.run('a', 'note', 'beta', 'Deep focus pricing', null, null, null, 100, 500, 0, 'research', 1);
+    insertItem.run('b', 'link', 'Alpha', null, 'https://example.com/ai', null, null, 200, 500, 0, 'research', 0);
+    insertItem.run('c', 'image', 'Zulu', 'Visual reference', null, 'images/zulu.png', 'asset-c', 200, 300, 0, null, 1);
+    insertItem.run('d', 'note', 'Archived', 'Deep archive', null, null, null, 50, 600, 1, 'research', 1);
     const insertTag = db.raw.prepare('INSERT INTO item_tags (item_id, tag_key, display, ordinal) VALUES (?, ?, ?, ?)');
     insertTag.run('a', 'ai', 'AI', 0);
     insertTag.run('a', 'pricing', 'Pricing', 1);
@@ -248,14 +248,14 @@ describe('Phase 5B query, sort, tag aggregation, and Library overview', () => {
     db.raw.prepare('INSERT INTO collections (id, name, name_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
       .run('research', 'Research', 'research', 1, 1);
     const insertItem = db.raw.prepare(
-      `INSERT INTO items (id, type, title, body, url, image_path, created_at, updated_at, archived, collection_id, pinned)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO items (id, type, title, body, url, image_path, asset_id, created_at, updated_at, archived, collection_id, pinned)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     // Earliest spelling is archived; it remains the deterministic display source but contributes zero to active count.
-    insertItem.run('old', 'note', 'Old', 'Old', null, null, 50, 50, 1, 'research', 0);
-    insertItem.run('n1', 'note', 'One', 'Body', null, null, 100, 100, 0, 'research', 1);
-    insertItem.run('l1', 'link', 'Two', null, 'https://example.com', null, 200, 200, 0, null, 0);
-    insertItem.run('i1', 'image', 'Three', null, null, 'images/three.png', 300, 300, 0, null, 0);
+    insertItem.run('old', 'note', 'Old', 'Old', null, null, null, 50, 50, 1, 'research', 0);
+    insertItem.run('n1', 'note', 'One', 'Body', null, null, null, 100, 100, 0, 'research', 1);
+    insertItem.run('l1', 'link', 'Two', null, 'https://example.com', null, null, 200, 200, 0, null, 0);
+    insertItem.run('i1', 'image', 'Three', null, null, 'images/three.png', 'asset-i1', 300, 300, 0, null, 0);
     const insertTag = db.raw.prepare('INSERT INTO item_tags (item_id, tag_key, display, ordinal) VALUES (?, ?, ?, ?)');
     insertTag.run('old', 'ai', 'Ai Original', 0);
     insertTag.run('old', 'archived-only', 'Archived Only', 1);

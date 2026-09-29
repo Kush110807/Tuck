@@ -7,10 +7,11 @@ const migration = fs.readFileSync(path.join(root, 'supabase/migrations/202609290
 const sqlite = fs.readFileSync(path.join(root, 'src/data/SQLiteItemRepository.ts'), 'utf8');
 const app = fs.readFileSync(path.join(root, 'App.tsx'), 'utf8');
 
-describe('Phase 6B repository/source invariants', () => {
-  it('keeps Android production SQLite on schema v2 and does not wire sync into App.tsx', () => {
-    expect(sqlite).toContain('const SCHEMA_VERSION = 2;');
-    expect(sqlite).not.toContain('sync_outbox');
+describe('Phase 6B backend + Phase 6C local source invariants', () => {
+  it('moves Android local storage to schema v3 without activating cloud sync in App.tsx', () => {
+    expect(sqlite).toContain('const SCHEMA_VERSION = 3;');
+    expect(sqlite).toContain('CREATE TABLE sync_outbox');
+    expect(sqlite).toContain('CREATE TABLE sync_entity_state');
     expect(app).not.toMatch(/SupabaseSyncTransport|tuck_push_mutations|SyncEngine/);
   });
 
