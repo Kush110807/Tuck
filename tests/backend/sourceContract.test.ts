@@ -37,6 +37,8 @@ describe('Phase 6B repository/source invariants', () => {
     expect(migration).toContain('CREATE ROLE tuck_rpc_owner NOLOGIN NOINHERIT BYPASSRLS');
     expect(migration).toContain('REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA private FROM PUBLIC, anon, authenticated');
     expect(migration).toContain('GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA private TO tuck_rpc_owner');
+    expect(migration).toContain('GRANT USAGE ON SCHEMA auth TO tuck_rpc_owner;');
+    expect(migration).not.toContain('GRANT SELECT ON auth.users');
     const membershipGrant = migration.indexOf('GRANT tuck_rpc_owner TO postgres;');
     const firstOwnerTransfer = migration.indexOf('ALTER FUNCTION public.tuck_push_mutations(jsonb) OWNER TO tuck_rpc_owner;');
     const lastOwnerTransfer = migration.indexOf('ALTER FUNCTION private.initialize_tuck_account() OWNER TO tuck_rpc_owner;');

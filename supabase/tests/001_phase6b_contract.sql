@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
-select plan(34);
+select plan(38);
 
 select has_table('public', 'accounts', 'accounts exists');
 select has_table('private', 'account_sync_heads', 'per-account head exists');
@@ -46,6 +46,38 @@ select ok(exists (
     and not rolcreaterole
     and not rolreplication
 ), 'tuck_rpc_owner keeps exact hardened non-login attributes');
+
+-- P6B-04: SECURITY DEFINER RPCs call schema-qualified auth.uid(). The owner
+-- needs schema USAGE, but no auth table access or client-role membership.
+select ok(
+  has_schema_privilege('tuck_rpc_owner', 'auth', 'USAGE'),
+  'tuck_rpc_owner has only the required auth schema USAGE boundary'
+);
+
+select ok(
+  has_function_privilege('tuck_rpc_owner', 'auth.uid()', 'EXECUTE'),
+  'tuck_rpc_owner can execute auth.uid()'
+);
+
+select ok(
+  not has_table_privilege('tuck_rpc_owner', 'auth.users', 'SELECT')
+  and not has_table_privilege('tuck_rpc_owner', 'auth.users', 'INSERT')
+  and not has_table_privilege('tuck_rpc_owner', 'auth.users', 'UPDATE')
+  and not has_table_privilege('tuck_rpc_owner', 'auth.users', 'DELETE')
+  and not has_table_privilege('tuck_rpc_owner', 'auth.users', 'TRUNCATE')
+  and not has_table_privilege('tuck_rpc_owner', 'auth.users', 'REFERENCES')
+  and not has_table_privilege('tuck_rpc_owner', 'auth.users', 'TRIGGER'),
+  'tuck_rpc_owner has no auth.users table privileges'
+);
+
+select ok(not exists (
+  select 1
+  from pg_auth_members m
+  join pg_roles owner_role on owner_role.oid=m.roleid
+  join pg_roles member_role on member_role.oid=m.member
+  where owner_role.rolname='tuck_rpc_owner'
+    and member_role.rolname in ('anon','authenticated')
+), 'anon/authenticated are not members of tuck_rpc_owner');
 
 select ok(not exists (
   select 1 from pg_auth_members m
@@ -107,7 +139,7 @@ select ok(not exists (
   from (values
     ('public.tuck_push_mutations(jsonb)', 'search_path=pg_catalog, public, private'),
     ('public.tuck_pull_changes(jsonb)', 'search_path=pg_catalog, public, private'),
-    ('public.tuck_bootstrap(jsonb)', 'search_path=pg_catalog, public, private'),
+    ('public.tuck_bootstrap(jsonb)', 'search_path=pg_catalog, public, private, extensions'),
     ('public.tuck_request_account_deletion()', 'search_path=pg_catalog, public'),
     ('public.tuck_create_asset_staging(text,text,bigint)', 'search_path=pg_catalog, public, private'),
     ('public.tuck_finalize_asset(text,text)', 'search_path=pg_catalog, public, private, storage'),

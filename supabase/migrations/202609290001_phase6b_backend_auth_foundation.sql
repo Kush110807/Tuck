@@ -1423,11 +1423,11 @@ DROP POLICY IF EXISTS tuck_assets_delete_own ON storage.objects;
 -- ---------------------------------------------------------------------------
 -- Function owner / privileges.
 -- ---------------------------------------------------------------------------
-GRANT USAGE ON SCHEMA public, private, auth, storage, extensions TO tuck_rpc_owner;
+GRANT USAGE ON SCHEMA public, private, storage, extensions TO tuck_rpc_owner;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.accounts, public.assets, public.collections, public.items, public.item_tags TO tuck_rpc_owner;
 GRANT SELECT, INSERT, UPDATE, DELETE ON private.account_sync_heads, private.entity_tombstones, private.sync_changes,
   private.processed_mutations, private.bootstrap_sessions, private.bootstrap_entries TO tuck_rpc_owner;
-GRANT SELECT ON auth.users, storage.objects TO tuck_rpc_owner;
+GRANT SELECT ON storage.objects TO tuck_rpc_owner;
 GRANT CREATE ON SCHEMA public, private TO tuck_rpc_owner;
 
 -- Local Supabase applies project migrations as the demoted `postgres` role.
@@ -1444,6 +1444,11 @@ ALTER FUNCTION public.tuck_create_asset_staging(text,text,bigint) OWNER TO tuck_
 ALTER FUNCTION public.tuck_finalize_asset(text,text) OWNER TO tuck_rpc_owner;
 ALTER FUNCTION private.initialize_tuck_account() OWNER TO tuck_rpc_owner;
 REVOKE CREATE ON SCHEMA public, private FROM tuck_rpc_owner;
+
+-- SECURITY DEFINER functions resolve the schema-qualified auth.uid() helper as
+-- tuck_rpc_owner. Schema USAGE is the only auth privilege this role needs;
+-- it receives no auth table privileges or auth-role membership.
+GRANT USAGE ON SCHEMA auth TO tuck_rpc_owner;
 
 REVOKE EXECUTE ON FUNCTION public.tuck_push_mutations(jsonb) FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.tuck_pull_changes(jsonb) FROM PUBLIC, anon;
