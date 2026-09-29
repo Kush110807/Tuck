@@ -10,6 +10,8 @@ import type { CanonicalAsset, PullChangesResponse, PushMutationsResponse, SyncCh
 import type { SupabaseAssetTransport } from '../../src/sync/transport/SupabaseAssetTransport';
 import type { SupabaseSyncTransport } from '../../src/sync/transport/SupabaseSyncTransport';
 
+type EngineImageStore = ConstructorParameters<typeof SyncEngine>[3];
+
 const ACCOUNT = '11111111-1111-4111-8111-111111111111';
 const DEVICE = '22222222-2222-4222-8222-222222222222';
 const MUTATION = '33333333-3333-4333-8333-333333333333';
@@ -56,7 +58,7 @@ function transports(overrides?: Partial<{ push: (req:any)=>Promise<PushMutations
   return { sync:{pushMutations:push,pullChanges:pull,bootstrap} as unknown as SupabaseSyncTransport, assetTransport:asset as unknown as SupabaseAssetTransport, push,pull,bootstrap,asset };
 }
 
-function images(){return {resolve:vi.fn(async()=>ok({kind:'missing'} as const)),readForSync:vi.fn(async()=>ok({bytes:new Uint8Array([137,80,78,71]),mimeType:'image/png' as const,byteSize:4})),writeDownloadedAsset:vi.fn(async()=>ok('images/remote-a.png' as RelativeImagePath))};}
+function images(){return {resolve:vi.fn<EngineImageStore['resolve']>(async (_path)=>ok({kind:'missing'} as const)),readForSync:vi.fn<EngineImageStore['readForSync']>(async (_path)=>ok({bytes:new Uint8Array([137,80,78,71]),mimeType:'image/png' as const,byteSize:4})),writeDownloadedAsset:vi.fn<EngineImageStore['writeDownloadedAsset']>(async (_assetId,_mimeType,_bytes)=>ok('images/remote-a.png' as RelativeImagePath))};}
 
 describe('Phase 6D SyncEngine',()=>{
   it('does not send account mutations for local-only/no-auth profile',async()=>{const local=new FakeLocal();local.profile={profileKind:'local-only',accountId:null,deviceId:DEVICE,syncEnabled:false};local.rows=[outbox()];const t=transports();const engine=new SyncEngine(local,t.sync,t.assetTransport,images() as never);await engine.runOnce('startup');expect(t.push).not.toHaveBeenCalled();expect(t.pull).not.toHaveBeenCalled();});

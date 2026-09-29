@@ -3,6 +3,11 @@ import { WebCloudClient } from '../../src/web/WebCloudClient';
 import type { SupabaseSyncTransport } from '../../src/sync/transport/SupabaseSyncTransport';
 import type { SupabaseAssetTransport } from '../../src/sync/transport/SupabaseAssetTransport';
 
+type BootstrapMethod = SupabaseSyncTransport['bootstrap'];
+type PullMethod = SupabaseSyncTransport['pullChanges'];
+type PushMethod = SupabaseSyncTransport['pushMutations'];
+type DownloadMethod = SupabaseAssetTransport['download'];
+
 const ACCOUNT = '11111111-1111-4111-8111-111111111111';
 const DEVICE = '22222222-2222-4222-8222-222222222222';
 
@@ -14,24 +19,28 @@ function note(version = 1, body = 'Body') {
   };
 }
 
-function makeClient(overrides: Partial<{ bootstrap: any; pull: any; push: any; download: any }> = {}) {
-  const bootstrap = vi.fn(overrides.bootstrap ?? (async () => ({
+function makeClient(overrides: Partial<{ bootstrap: BootstrapMethod; pull: PullMethod; push: PushMethod; download: DownloadMethod }> = {}) {
+  const defaultBootstrap: BootstrapMethod = async () => ({
     kind: 'page', protocolVersion: 1, accountId: ACCOUNT, sessionId: 's', snapshotHeadSequence: 1,
     entries: [{ ordinal: 1, snapshot: { entityType: 'item', entity: note() } }], nextAfterOrdinal: null,
     expiresAtEpochMs: Date.now() + 60_000,
-  })));
-  const pull = vi.fn(overrides.pull ?? (async (request: any) => ({
+  });
+  const defaultPull: PullMethod = async request => ({
     kind: 'page', protocolVersion: 1, accountId: ACCOUNT, changes: [], nextAfterSequence: request.afterSequence,
     targetHeadSequence: request.afterSequence, minimumRetainedSequence: 1, hasMore: false,
-  })));
-  const push = vi.fn(overrides.push ?? (async (request: any) => ({
+  });
+  const defaultPush: PushMethod = async request => ({
     kind: 'ok', protocolVersion: 1, accountId: ACCOUNT, headSequence: 2,
-    results: request.mutations.map((mutation: any) => ({
-      kind: 'accepted', mutationId: mutation.mutationId, serverVersion: 2, changeSequence: 2, changed: true, warnings: [],
-      canonical: { entityType: 'item', entity: { ...note(2, mutation.newValues.body ?? 'Body'), id: mutation.entityId, title: mutation.newValues.title ?? 'Plan' } },
+    results: request.mutations.map(mutation => ({
+      kind: 'accepted' as const, mutationId: mutation.mutationId, serverVersion: 2, changeSequence: 2, changed: true, warnings: [],
+      canonical: { entityType: 'item' as const, entity: { ...note(2, 'newValues' in mutation && 'body' in mutation.newValues ? mutation.newValues.body ?? 'Body' : 'Body'), id: mutation.entityId, title: 'newValues' in mutation && 'title' in mutation.newValues ? mutation.newValues.title ?? 'Plan' : 'Plan' } },
     })),
-  })));
-  const download = vi.fn(overrides.download ?? (async () => ({ bytes: new Uint8Array([1, 2, 3]), contentType: 'image/png' })));
+  });
+  const defaultDownload: DownloadMethod = async () => ({ bytes: new Uint8Array([1, 2, 3]), contentType: 'image/png' });
+  const bootstrap = vi.fn<BootstrapMethod>(overrides.bootstrap ?? defaultBootstrap);
+  const pull = vi.fn<PullMethod>(overrides.pull ?? defaultPull);
+  const push = vi.fn<PushMethod>(overrides.push ?? defaultPush);
+  const download = vi.fn<DownloadMethod>(overrides.download ?? defaultDownload);
   const sync = { bootstrap, pullChanges: pull, pushMutations: push } as unknown as SupabaseSyncTransport;
   const assets = { download } as unknown as SupabaseAssetTransport;
   return { client: new WebCloudClient(ACCOUNT, DEVICE, sync, assets), bootstrap, pull, push, download };
