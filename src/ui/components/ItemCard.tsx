@@ -30,6 +30,7 @@ export function ItemCard({ row, onPress }: ItemCardProps) {
             {item.archived ? <Text style={styles.archived}>Archived</Text> : null}
             <Text style={styles.dot}>•</Text>
             <Text style={styles.time}>{presentation.relativeTime}</Text>
+            {item.pinned ? <View style={styles.pinWrap}><AppIcon name="bookmark" size={13} color={colors.primary} /></View> : null}
           </View>
           <Text style={styles.title}>{item.title}</Text>
           <Text numberOfLines={2} style={styles.preview}>{presentation.preview}</Text>
@@ -68,26 +69,33 @@ const styles = StyleSheet.create({
     borderColor: colors.divider,
     borderRadius: radii.card,
     backgroundColor: colors.surface,
-    padding: space.lg,
+    paddingHorizontal: space.lg,
+    paddingVertical: 18,
+    elevation: 1,
+    shadowColor: '#20241F',
+    shadowOpacity: 0.035,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
   },
   pressed: { backgroundColor: colors.surfaceMuted },
   mainRow: { flexDirection: 'row', alignItems: 'flex-start', gap: space.md },
   content: { flex: 1, minWidth: 0, gap: space.xs },
-  eyebrowRow: { minHeight: 20, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 5 },
-  type: { color: colors.primary, fontSize: 11, lineHeight: 16, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
+  eyebrowRow: { minHeight: 18, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 5 },
+  type: { color: colors.primary, fontSize: 10, lineHeight: 15, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.65 },
   archived: { color: colors.secondaryText, fontSize: 11, lineHeight: 16, fontWeight: '700' },
   dot: { color: colors.tertiaryText, fontSize: 11, lineHeight: 16 },
-  time: { color: colors.tertiaryText, fontSize: 11, lineHeight: 16, fontWeight: '600' },
-  title: { color: colors.text, fontSize: 18, lineHeight: 24, fontWeight: '700' },
+  time: { color: colors.tertiaryText, fontSize: 10, lineHeight: 15, fontWeight: '600' },
+  pinWrap: { marginLeft: 'auto', width: 24, height: 24, borderRadius: 12, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
+  title: { color: colors.text, fontSize: 18, lineHeight: 24, fontWeight: '800', letterSpacing: -0.15 },
   preview: { color: colors.secondaryText, fontSize: 14, lineHeight: 20 },
   tags: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.sm, paddingTop: 2 },
   tag: { color: colors.primary, fontSize: 12, lineHeight: 17, fontWeight: '600' },
   moreTags: { color: colors.tertiaryText, fontSize: 12, lineHeight: 17, fontWeight: '600' },
-  thumbnail: { width: 76, height: 76, borderRadius: 13, backgroundColor: colors.surfaceMuted },
+  thumbnail: { width: 88, height: 88, borderRadius: 15, backgroundColor: colors.surfaceMuted },
   thumbnailFallback: {
-    width: 76,
-    height: 76,
-    borderRadius: 13,
+    width: 88,
+    height: 88,
+    borderRadius: 15,
     backgroundColor: colors.surfaceMuted,
     alignItems: 'center',
     justifyContent: 'center',

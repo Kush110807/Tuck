@@ -44,7 +44,7 @@ export function EditorScreen(props: EditorScreenProps) {
   } = state;
   const pending = mutation.kind === 'pending';
   const title = mode === 'create' ? `New ${typeLabels[draft.type]}` : `Edit ${typeLabels[draft.type]}`;
-  const saveLabel = pending ? 'Saving…' : mode === 'create' ? 'Save item' : 'Save changes';
+  const saveLabel = pending ? 'Saving…' : 'Done';
 
   return (
     <>
@@ -57,7 +57,7 @@ export function EditorScreen(props: EditorScreenProps) {
           <ScreenHeader
             title={title}
             size="compact"
-            subtitle={isDirty ? 'Unsaved changes' : mode === 'create' ? 'Add the details below.' : 'Everything is saved.'}
+            subtitle={isDirty ? 'Unsaved changes' : mode === 'create' ? 'Capture something worth keeping.' : 'Everything is saved.'}
             leading={<IconButton icon="close" label="Cancel editing" onPress={props.onCancel} disabled={pending} />}
           />
 

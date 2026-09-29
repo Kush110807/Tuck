@@ -1,0 +1,52 @@
+name: Deploy Tuck Web to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Verify
+        run: |
+          npx expo install --check
+          npm run typecheck
+          npm test
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+      - name: Build static Web
+        run: npm run web:build
+        env:
+          EXPO_PUBLIC_BASE_URL: /${{ github.event.repository.name }}
+      - name: Disable Jekyll
+        run: touch dist-web/.nojekyll
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist-web
+      - name: Deploy Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

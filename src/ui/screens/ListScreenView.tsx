@@ -92,7 +92,7 @@ export function ListScreenView({
 
       {rows.length > 0 ? (
         <Text style={styles.count} accessibilityLiveRegion="polite">
-          {rows.length} item{rows.length === 1 ? '' : 's'}
+          {rows.length} thing{rows.length === 1 ? '' : 's'}
           {state.kind === 'loading' ? ' · refreshing' : ''}
         </Text>
       ) : null}
@@ -103,8 +103,8 @@ export function ListScreenView({
       {state.kind === 'ready' && rows.length === 0 ? (
         filtered ? (
           <EmptyState
-            title="No matches"
-            message="Try another search or clear your active filters."
+            title="Nothing matches that search"
+            message="Try another phrase or clear your active filters."
             actionLabel="Clear filters"
             onAction={() => onQueryChange({ ...query, text: '', type: 'all', tagKey: null })}
           />
@@ -124,7 +124,7 @@ export function ListScreenView({
 
 const styles = StyleSheet.create({
   scroll: { flex: 1, backgroundColor: colors.background },
-  screen: { flexGrow: 1, paddingHorizontal: space.lg, paddingTop: space.md, gap: space.lg },
+  screen: { flexGrow: 1, paddingHorizontal: space.lg, paddingTop: space.lg, gap: space.lg },
   discovery: { gap: space.sm },
   count: { color: colors.tertiaryText, fontSize: 12, lineHeight: 18, fontWeight: '700', paddingHorizontal: 2 },
   list: { gap: space.sm },

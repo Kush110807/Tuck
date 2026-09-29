@@ -34,7 +34,7 @@ export function InboxScreen({
         state={state}
         feedback={feedback}
         emptyTitle="Nothing tucked yet"
-        emptyMessage="Notes, links and images you save will appear here."
+        emptyMessage="Save a thought, a link, or an image."
         onQueryChange={onQueryChange}
         onOpen={onOpen}
         onRetry={onRetry}

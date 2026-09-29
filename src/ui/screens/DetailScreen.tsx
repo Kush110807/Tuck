@@ -118,7 +118,7 @@ export function DetailScreen({
             disabled={pending}
             style={styles.action}
           />
-          <ActionButton label="Delete" onPress={onRequestDelete} variant="danger" disabled={pending} style={styles.action} />
+          <ActionButton label="Delete" onPress={onRequestDelete} variant="text" disabled={pending} style={styles.deleteAction} />
         </View>
       </>
     );
@@ -172,4 +172,5 @@ const styles = StyleSheet.create({
   divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.divider },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
   action: { flexGrow: 1, minWidth: 132 },
+  deleteAction: { minWidth: 88 },
 });
