@@ -298,7 +298,7 @@ function bootstrapPaginationExpiryImmutability() {
   assert(continuation.snapshotHeadSequence === 2, 'bootstrap continuation must retain original snapshot head');
   assert(!continuation.entries.some(entry => entry.snapshot.entity.id === 'boot-after-snapshot'), 'immutable bootstrap session must not absorb later entities');
 
-  run(`UPDATE private.bootstrap_sessions SET expires_at=now()-interval '1 second' WHERE id=${q(first.sessionId)}::uuid AND user_id=${q(USER_A)}::uuid;`);
+  run(`UPDATE private.bootstrap_sessions SET expires_at=created_at + interval '1 microsecond' WHERE id=${q(first.sessionId)}::uuid AND user_id=${q(USER_A)}::uuid;`);
   const expired = JSON.parse(run(rpcSql(USER_A, 'tuck_bootstrap', { ...request, sessionId: first.sessionId, afterOrdinal: first.nextAfterOrdinal })));
   assert(expired.kind === 'bootstrap_expired', 'expired bootstrap continuation must require restart');
 
