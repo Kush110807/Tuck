@@ -94,6 +94,11 @@ type SyncProfileRow = {
   device_id: string;
   sync_enabled: number;
 };
+type PendingAccountProfileIntentRow = {
+  account_id: string;
+  device_id: string;
+  sync_enabled: number;
+};
 type SyncEntityStateRow = {
   entity_type: 'item' | 'collection';
   entity_id: string;
@@ -1498,6 +1503,16 @@ export class SQLiteItemRepository implements ItemRepository, OrganisationReposit
     const startingVersion = version;
     if (version > SCHEMA_VERSION) throw new Error('Database schema is newer than this app supports.');
 
+    // A fresh account database crosses two independently committed legacy migrations
+    // before v3. Persist that creation intent first so a crash during v2->v3 cannot
+    // cause the retry to misclassify the database as a legacy local-only profile.
+    let pendingAccountIntent = await this.getPendingAccountProfileIntent(db);
+    if (pendingAccountIntent) {
+      this.assertPendingAccountIntentMatchesRequest(pendingAccountIntent);
+    } else if (version === 0 && this.initialSyncProfile?.kind === 'account') {
+      pendingAccountIntent = await this.persistFreshAccountProfileIntent(db, this.initialSyncProfile);
+    }
+
     if (version === 0) {
       await this.migrateV0ToV1(db);
       version = 1;
@@ -1507,12 +1522,72 @@ export class SQLiteItemRepository implements ItemRepository, OrganisationReposit
       version = 2;
     }
     if (version === 2) {
-      // Only a brand-new database may be born directly as an account profile.
-      // Existing v1/v2 installations always migrate as local-only, per the frozen Phase 6A contract.
-      await this.migrateV2ToV3(db, startingVersion === 0 ? this.initialSyncProfile : undefined);
+      // A genuine pre-existing v1/v2 installation has no creation-intent marker and
+      // therefore still migrates as local-only. Fresh local-only creation keeps its
+      // original behavior, while a persisted fresh-account intent survives retries.
+      const profile: SQLiteInitialSyncProfile | undefined = pendingAccountIntent
+        ? {
+            kind: 'account',
+            accountId: pendingAccountIntent.account_id,
+            deviceId: pendingAccountIntent.device_id,
+            syncEnabled: pendingAccountIntent.sync_enabled !== 0,
+          }
+        : startingVersion === 0 ? this.initialSyncProfile : undefined;
+      await this.migrateV2ToV3(db, profile);
       version = 3;
     }
     if (version !== SCHEMA_VERSION) throw new Error('Database schema migration did not reach the supported version.');
+  }
+
+  private async getPendingAccountProfileIntent(db: Db): Promise<PendingAccountProfileIntentRow | null> {
+    const table = await db.getFirstAsync<CountRow>(
+      "SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = '_tuck_account_profile_intent'",
+    );
+    if ((table?.count ?? 0) === 0) return null;
+    return db.getFirstAsync<PendingAccountProfileIntentRow>(
+      'SELECT account_id, device_id, sync_enabled FROM _tuck_account_profile_intent WHERE singleton = 1',
+    );
+  }
+
+  private assertPendingAccountIntentMatchesRequest(intent: PendingAccountProfileIntentRow): void {
+    if (!this.initialSyncProfile) return;
+    if (this.initialSyncProfile.kind !== 'account' || this.initialSyncProfile.accountId !== intent.account_id) {
+      throw new Error('Database has a pending account profile creation for a different sync profile.');
+    }
+  }
+
+  private async persistFreshAccountProfileIntent(
+    db: Db,
+    profile: Extract<SQLiteInitialSyncProfile, { kind: 'account' }>,
+  ): Promise<PendingAccountProfileIntentRow> {
+    if (!profile.accountId) throw new Error('Account profile requires an account ID.');
+    const existingTuckTables = await db.getFirstAsync<CountRow>(
+      `SELECT COUNT(*) AS count FROM sqlite_master
+        WHERE type = 'table'
+          AND name IN ('items', 'item_tags', 'pending_file_deletions', 'collections', 'sync_profile', 'sync_outbox')`,
+    );
+    if ((existingTuckTables?.count ?? 0) !== 0) {
+      throw new Error('Account creation intent may only be recorded for a brand-new database.');
+    }
+
+    const deviceId = profile.deviceId ?? this.createSyncId();
+    if (typeof deviceId !== 'string' || !deviceId) throw new Error('Sync device ID is invalid.');
+    const syncEnabled = profile.syncEnabled === false ? 0 : 1;
+    await db.withExclusiveTransactionAsync(async tx => {
+      await tx.execAsync(`
+        CREATE TABLE _tuck_account_profile_intent (
+          singleton INTEGER PRIMARY KEY NOT NULL DEFAULT 1 CHECK (singleton = 1),
+          account_id TEXT NOT NULL,
+          device_id TEXT NOT NULL,
+          sync_enabled INTEGER NOT NULL CHECK (sync_enabled IN (0, 1))
+        );
+      `);
+      await tx.runAsync(
+        'INSERT INTO _tuck_account_profile_intent (singleton, account_id, device_id, sync_enabled) VALUES (1, ?, ?, ?)',
+        profile.accountId, deviceId, syncEnabled,
+      );
+    });
+    return { account_id: profile.accountId, device_id: deviceId, sync_enabled: syncEnabled };
   }
 
   private async migrateV0ToV1(db: Db): Promise<void> {
@@ -1755,6 +1830,9 @@ export class SQLiteItemRepository implements ItemRepository, OrganisationReposit
 
       const foreignKeyViolations = await tx.getAllAsync<ForeignKeyViolationRow>('PRAGMA foreign_key_check');
       if (foreignKeyViolations.length > 0) throw new Error('SQLite foreign_key_check failed during v3 migration.');
+      // Consume the fresh-account marker in the same transaction that commits v3.
+      // If anything above fails, the DROP rolls back and the intent remains retryable.
+      await tx.execAsync('DROP TABLE IF EXISTS _tuck_account_profile_intent;');
       await tx.execAsync('PRAGMA user_version = 3;');
     });
   }

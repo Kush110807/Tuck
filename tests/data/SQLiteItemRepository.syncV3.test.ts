@@ -203,6 +203,74 @@ describe('Phase 6C schema v3 migration', () => {
     await expect(repository.initialize()).resolves.toEqual({ ok: true, value: undefined });
     expect(db.raw.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 3 });
   });
+
+  it('preserves fresh account intent across an interrupted v3 migration and rejects rebinding', async () => {
+    const db = makeAdapter();
+    vi.mocked(SQLite.openDatabaseAsync).mockResolvedValue(db as never);
+    db.setFailureHook(sql => {
+      if (sql.includes('CREATE TABLE sync_outbox')) throw new Error('simulated fresh-account v3 interruption');
+    });
+
+    const firstAttempt = new SQLiteItemRepository(imageStore(), {
+      createId: idSource(['account-item']),
+      createSyncId: uuidSource(),
+      now: () => 10_000,
+      initialSyncProfile: {
+        kind: 'account',
+        accountId: ACCOUNT_A,
+        deviceId: 'device-original-a',
+        syncEnabled: true,
+      },
+    });
+    await expect(firstAttempt.initialize()).resolves.toMatchObject({ ok: false });
+    expect(db.raw.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 2 });
+    expect(db.raw.prepare(
+      'SELECT account_id, device_id, sync_enabled FROM _tuck_account_profile_intent WHERE singleton = 1',
+    ).get()).toMatchObject({ account_id: ACCOUNT_A, device_id: 'device-original-a', sync_enabled: 1 });
+    expect(db.raw.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name='sync_profile'").get())
+      .toMatchObject({ count: 0 });
+
+    db.setFailureHook(null);
+    const conflictingRetry = new SQLiteItemRepository(imageStore(), {
+      initialSyncProfile: { kind: 'account', accountId: ACCOUNT_B },
+    });
+    await expect(conflictingRetry.initialize()).resolves.toMatchObject({ ok: false });
+    expect(db.raw.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 2 });
+    expect(db.raw.prepare(
+      'SELECT account_id FROM _tuck_account_profile_intent WHERE singleton = 1',
+    ).get()).toMatchObject({ account_id: ACCOUNT_A });
+
+    const retry = new SQLiteItemRepository(imageStore(), {
+      createId: idSource(['account-item']),
+      createSyncId: uuidSource(100),
+      now: () => 20_000,
+      initialSyncProfile: { kind: 'account', accountId: ACCOUNT_A },
+    });
+    await expect(retry.initialize()).resolves.toEqual({ ok: true, value: undefined });
+    expect(db.raw.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 3 });
+    expect(db.raw.prepare('SELECT profile_kind, account_id, device_id, sync_enabled FROM sync_profile').get())
+      .toMatchObject({ profile_kind: 'account', account_id: ACCOUNT_A, device_id: 'device-original-a', sync_enabled: 1 });
+    expect(db.raw.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name='_tuck_account_profile_intent'").get())
+      .toMatchObject({ count: 0 });
+    expect(expectOk(await retry.getLocalSyncCheckpoint())).toMatchObject({ pullCursor: 0, initialSyncState: 'not_started' });
+
+    const created = expectOk(await retry.create({ type: 'note', title: 'Account A', body: 'Body', tags: [] }));
+    const outbox = expectOk(await retry.listDurableOutbox());
+    expect(outbox).toHaveLength(1);
+    expect(outbox[0].mutation).toMatchObject({ accountId: ACCOUNT_A, entityId: created.id });
+
+    const reopenA = new SQLiteItemRepository(imageStore(), {
+      initialSyncProfile: { kind: 'account', accountId: ACCOUNT_A },
+    });
+    await expect(reopenA.initialize()).resolves.toEqual({ ok: true, value: undefined });
+
+    const reopenB = new SQLiteItemRepository(imageStore(), {
+      initialSyncProfile: { kind: 'account', accountId: ACCOUNT_B },
+    });
+    await expect(reopenB.initialize()).resolves.toMatchObject({ ok: false });
+    expect(db.raw.prepare('SELECT account_id FROM sync_profile WHERE singleton = 1').get())
+      .toMatchObject({ account_id: ACCOUNT_A });
+  });
 });
 
 describe('Phase 6C durable authored outbox', () => {
