@@ -12,7 +12,7 @@
     "android": {
       "package": "dev.tuck.byteapp",
       "adaptiveIcon": {
-        "backgroundColor": "#F7F5F0",
+        "backgroundColor": "#FAF8F2",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -38,6 +38,11 @@
       ],
       "expo-secure-store"
     ],
-    "scheme": "tuck"
+    "scheme": "tuck",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FAF8F2"
+    }
   }
 }

@@ -11,6 +11,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { AppIcon } from '../ui/components/AppIcon';
+import { TuckBrand } from './TuckBrand';
 import { colors, minimumTouchSize, radii, space } from '../theme/tokens';
 import {
   WebLocalRepository,
@@ -528,8 +529,8 @@ export function WebTuckApp() {
     <View style={styles.workspace}>
       {!mobile ? (
         <View style={[styles.sidebar, compact && styles.sidebarCompact]}>
-          <View style={styles.brandBlock}>
-            <Text style={styles.logo}>Tuck</Text>
+          <View style={[styles.brandBlock, compact && styles.brandBlockCompact]}>
+            <TuckBrand compact={compact} />
             {!compact ? <Text style={styles.tagline}>Keep what matters. Find it fast.</Text> : null}
           </View>
           <Pressable onPress={() => setNewMenuOpen(true)} style={({ pressed }) => [styles.sidebarNew, compact && styles.sidebarNewCompact, pressed && styles.primaryPressed]}>
@@ -558,7 +559,7 @@ export function WebTuckApp() {
       <View style={styles.mainShell}>
         {mobile ? (
           <View style={styles.mobileHeader}>
-            <View><Text style={styles.mobileLogo}>Tuck</Text><Text style={styles.mobileTagline}>Keep what matters. Find it fast.</Text></View>
+            <View style={styles.mobileBrandBlock}><TuckBrand mobile /><Text style={styles.mobileTagline}>Keep what matters. Find it fast.</Text></View>
             <Pressable accessibilityLabel="New item" onPress={() => setNewMenuOpen(true)} style={({ pressed }) => [styles.mobileNew, pressed && styles.primaryPressed]}><AppIcon name="add" size={22} color={colors.surface} /></Pressable>
           </View>
         ) : null}
@@ -646,9 +647,9 @@ const styles = StyleSheet.create({
   workspace: { flex: 1, minHeight: '100vh' as never, flexDirection: 'row', backgroundColor: colors.background },
   sidebar: { width: 244, minHeight: '100vh' as never, backgroundColor: '#F2EEE5', paddingHorizontal: 18, paddingTop: 28, paddingBottom: 20, borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: colors.divider },
   sidebarCompact: { width: 88, paddingHorizontal: 10 },
-  brandBlock: { marginBottom: 22, paddingHorizontal: 8 },
-  logo: { color: colors.text, fontSize: 31, lineHeight: 36, fontWeight: '900', letterSpacing: -0.9 },
-  tagline: { marginTop: 4, color: colors.secondaryText, fontSize: 13, lineHeight: 19, maxWidth: 190 },
+  brandBlock: { marginBottom: 22, paddingHorizontal: 6 },
+  brandBlockCompact: { paddingHorizontal: 0, alignItems: 'center' },
+  tagline: { marginTop: 5, marginLeft: 40, color: colors.secondaryText, fontSize: 12, lineHeight: 18, maxWidth: 164 },
   sidebarNew: { minHeight: 44, borderRadius: 14, backgroundColor: colors.primary, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 22, paddingHorizontal: 14 },
   sidebarNewText: { color: colors.surface, fontWeight: '800', fontSize: 14 },
   sidebarNewCompact: { width: 44, paddingHorizontal: 0, alignSelf: 'center' },
@@ -666,9 +667,9 @@ const styles = StyleSheet.create({
   collectionNavText: { flex: 1, minWidth: 0, color: colors.secondaryText, fontSize: 13, lineHeight: 18, fontWeight: '600' },
   sidebarBottom: { marginTop: 'auto' as never },
   mainShell: { flex: 1, minWidth: 0 },
-  mobileHeader: { minHeight: 76, paddingHorizontal: 18, paddingTop: 16, paddingBottom: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.background },
-  mobileLogo: { color: colors.text, fontSize: 27, lineHeight: 31, fontWeight: '900', letterSpacing: -0.7 },
-  mobileTagline: { color: colors.secondaryText, fontSize: 12, lineHeight: 17 },
+  mobileHeader: { minHeight: 76, paddingHorizontal: 18, paddingTop: 14, paddingBottom: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.background },
+  mobileBrandBlock: { minWidth: 0 },
+  mobileTagline: { marginTop: 2, marginLeft: 35, color: colors.secondaryText, fontSize: 11, lineHeight: 16 },
   mobileNew: { width: 44, height: 44, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary },
   mobileNav: { paddingHorizontal: 12, paddingBottom: 10, flexDirection: 'row', alignItems: 'center', gap: 3 },
   mobileNavButton: { flex: 1, minWidth: 0, minHeight: 40, borderRadius: 12, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center' },
