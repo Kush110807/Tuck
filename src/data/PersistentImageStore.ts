@@ -9,6 +9,12 @@ const SAFE_IMAGE_PATH = /^images\/[A-Za-z0-9][A-Za-z0-9._-]*\.(?:jpg|jpeg|png|we
 
 type ImageDecoder = (uri: string) => Promise<{ width: number; height: number }>;
 
+export type SyncImageBytes = Readonly<{
+  bytes: Uint8Array;
+  mimeType: 'image/jpeg' | 'image/png' | 'image/webp';
+  byteSize: number;
+}>;
+
 function imageError(code: AppError['code'], message: string): AppError {
   return { code, message, field: 'image' };
 }
@@ -135,6 +141,58 @@ export class PersistentImageStore implements ImageStore {
     }
 
     return { ok: false, error: imageError('IMAGE_COPY_FAILED', 'Could not allocate a unique app image filename.') };
+  }
+
+  async readForSync(path: RelativeImagePath): Promise<Result<SyncImageBytes>> {
+    if (!isSafeAppImagePath(path)) {
+      return { ok: false, error: imageError('INVALID_IMAGE_PATH', 'Stored image path is outside app image storage.') };
+    }
+    try {
+      const filename = path.slice(`${IMAGE_DIRECTORY}/`.length);
+      const file = new File(this.imagesDirectory, filename);
+      if (!file.exists) return { ok: false, error: imageError('OPEN_FAILED', 'Local image bytes are missing.') };
+      const bytes = await file.bytes();
+      if (bytes.byteLength > MAX_IMAGE_BYTES) {
+        return { ok: false, error: imageError('IMAGE_TOO_LARGE', 'Stored image exceeds the 10 MiB sync limit.') };
+      }
+      const detected = detectSupportedImageFormat(bytes);
+      if (!detected) return { ok: false, error: imageError('IMAGE_UNSUPPORTED', 'Stored image is not a valid JPEG, PNG or WebP image.') };
+      return { ok: true, value: { bytes, mimeType: detected.mimeType, byteSize: bytes.byteLength } };
+    } catch {
+      return { ok: false, error: imageError('OPEN_FAILED', 'Could not read stored image bytes.') };
+    }
+  }
+
+  async writeDownloadedAsset(
+    assetId: string,
+    mimeType: 'image/jpeg' | 'image/png' | 'image/webp',
+    bytes: Uint8Array,
+  ): Promise<Result<RelativeImagePath>> {
+    if (!assetId || bytes.byteLength > MAX_IMAGE_BYTES) {
+      return { ok: false, error: imageError('IMAGE_TOO_LARGE', 'Downloaded image is invalid or exceeds 10 MiB.') };
+    }
+    const detected = detectSupportedImageFormat(bytes);
+    if (!detected || detected.mimeType !== mimeType) {
+      return { ok: false, error: imageError('IMAGE_UNSUPPORTED', 'Downloaded image bytes do not match the expected type.') };
+    }
+    const prepared = this.prepare();
+    if (!prepared.ok) return prepared;
+    const safeId = assetId.replace(/[^A-Za-z0-9._-]/g, '_');
+    const filename = `remote-${safeId}.${detected.extension}`;
+    const relativePath = `${IMAGE_DIRECTORY}/${filename}` as RelativeImagePath;
+    const destination = new File(this.imagesDirectory, filename);
+    try {
+      destination.create({ intermediates: true, overwrite: true });
+      destination.write(bytes);
+      if (!(await isNativeDecodable(destination.uri, this.decodeImage))) {
+        try { destination.delete(); } catch { /* best effort */ }
+        return { ok: false, error: imageError('IMAGE_UNSUPPORTED', 'Downloaded image cannot be decoded on this device.') };
+      }
+      return { ok: true, value: relativePath };
+    } catch {
+      try { if (destination.exists) destination.delete(); } catch { /* best effort */ }
+      return { ok: false, error: imageError('IMAGE_COPY_FAILED', 'Could not cache downloaded image.') };
+    }
   }
 
   async resolve(path: RelativeImagePath): Promise<Result<{ kind: 'available'; uri: string } | { kind: 'missing' }>> {

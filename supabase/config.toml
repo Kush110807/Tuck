@@ -22,7 +22,7 @@ sql_paths = ["./seed.sql"]
 [auth]
 enabled = true
 site_url = "tuck://auth/callback"
-additional_redirect_urls = ["tuck://auth/callback"]
+additional_redirect_urls = ["tuck://auth/callback", "http://localhost:8081/**", "http://127.0.0.1:8081/**"]
 jwt_expiry = 3600
 enable_signup = true
 

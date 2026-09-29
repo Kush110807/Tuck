@@ -299,6 +299,68 @@ describe('Phase 6C durable authored outbox', () => {
     expect(restored.updatedAt).toBeGreaterThan(created.updatedAt);
   });
 
+  it('keeps both versions by turning an authored Item conflict into a normal local conflict-copy create', async () => {
+    const db = makeAdapter();
+    const repository = await accountRepository(db, ACCOUNT_A, ['item-original', 'item-copy']);
+    const created = expectOk(await repository.create({ type: 'note', title: 'Plan', body: 'Base body', tags: ['Work'] }));
+    const createOutbox = expectOk(await repository.listDurableOutbox())[0];
+    const accepted = expectOk(await repository.applyPushResults([{
+      sent: createOutbox,
+      result: {
+        kind: 'accepted',
+        mutationId: createOutbox.mutation.mutationId,
+        canonical: {
+          entityType: 'item',
+          entity: {
+            id: created.id, type: 'note', title: 'Plan', body: 'Base body', url: null, assetId: null,
+            tags: ['Work'], collectionId: null, pinned: false, archived: false,
+            createdAt: created.createdAt, updatedAt: created.updatedAt, version: 1,
+          },
+        },
+        serverVersion: 1,
+        changeSequence: 1,
+        changed: true,
+        warnings: [],
+      },
+    }]));
+    expect(accepted.accepted).toBe(1);
+
+    const locallyEdited = expectOk(await repository.update({
+      id: created.id,
+      type: 'note',
+      expectedUpdatedAt: created.updatedAt,
+      changes: { body: 'Local body' },
+    }));
+    const patchOutbox = expectOk(await repository.listDurableOutbox())[0];
+    const summary = expectOk(await repository.applyPushResults([{
+      sent: patchOutbox,
+      result: {
+        kind: 'conflict',
+        mutationId: patchOutbox.mutation.mutationId,
+        reason: 'AUTHORED_FIELD_CONFLICT',
+        conflictFields: ['body'],
+        current: {
+          entityType: 'item',
+          entity: {
+            id: created.id, type: 'note', title: 'Plan', body: 'Remote body', url: null, assetId: null,
+            tags: ['Work'], collectionId: null, pinned: false, archived: false,
+            createdAt: created.createdAt, updatedAt: locallyEdited.updatedAt + 1, version: 2,
+          },
+        },
+        currentServerVersion: 2,
+      },
+    }]));
+
+    expect(summary).toMatchObject({ conflicts: 0, resolvedConflicts: 1, rejected: 0, blockedMutationIds: [] });
+    expect(db.raw.prepare('SELECT body FROM items WHERE id=?').get(created.id)).toMatchObject({ body: 'Remote body' });
+    expect(db.raw.prepare('SELECT title, body FROM items WHERE id=?').get('item-copy'))
+      .toMatchObject({ title: 'Plan (conflict copy)', body: 'Local body' });
+    const remaining = expectOk(await repository.listDurableOutbox());
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0].mutation).toMatchObject({ entityType: 'item', entityId: 'item-copy', action: 'create' });
+    expect(remaining[0].mutation.mutationId).not.toBe(patchOutbox.mutation.mutationId);
+  });
+
   it('rolls back the domain create when outbox persistence fails', async () => {
     const db = makeAdapter();
     const repository = await accountRepository(db);

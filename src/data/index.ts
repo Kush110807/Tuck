@@ -1,4 +1,4 @@
-import type { ImageStore, TuckRepository } from '../contracts';
+import type { TuckRepository } from '../contracts';
 import type { LocalSyncRepository } from '../sync/localState';
 import { PersistentImageStore } from './PersistentImageStore';
 import { SQLiteItemRepository, type SQLiteItemRepositoryOptions } from './SQLiteItemRepository';
@@ -10,7 +10,7 @@ export type { SQLiteInitialSyncProfile, SQLiteItemRepositoryOptions } from './SQ
 export type TuckDataLayer = Readonly<{
   repository: TuckRepository;
   syncStore: LocalSyncRepository;
-  imageStore: ImageStore;
+  imageStore: PersistentImageStore;
 }>;
 
 /** Production wiring for C/master: one store instance shared by repository and image resolution. */

@@ -71,6 +71,20 @@ describe('Phase 6B Supabase auth foundation', () => {
     expect(service.isGenerationCurrent(service.sessionGeneration())).toBe(true);
   });
 
+  it('accepts a magic-link redirect only after validating the JWT user and persists the restored session', async () => {
+    const storage = new MemoryAuthStorage();
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      expect(url).toBe('https://example.supabase.co/auth/v1/user');
+      expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer callback-access');
+      return jsonResponse({ id: '11111111-1111-4111-8111-111111111111', email: 'a@example.com' });
+    });
+    const service = new SupabaseAuthService(CONFIG, storage, fetchImpl as unknown as typeof fetch, () => 1_000);
+    await expect(service.acceptRedirectSession({ accessToken: 'callback-access', refreshToken: 'callback-refresh', expiresIn: 3600 }))
+      .resolves.toMatchObject({ accessToken: 'callback-access', user: { email: 'a@example.com' } });
+    const restored = new SupabaseAuthService(CONFIG, storage, vi.fn() as unknown as typeof fetch, () => 2_000);
+    await expect(restored.restoreSession()).resolves.toMatchObject({ refreshToken: 'callback-refresh' });
+  });
+
   it('initiates email magic-link auth through the Supabase OTP endpoint', async () => {
     const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
       expect(url).toBe('https://example.supabase.co/auth/v1/otp?redirect_to=tuck%3A%2F%2Fauth%2Fcallback');

@@ -125,6 +125,42 @@ export class SupabaseAuthService {
     return parsed;
   }
 
+
+  /** Completes a raw GoTrue magic-link redirect without requiring the JS SDK. */
+  async acceptRedirectSession(input: Readonly<{
+    accessToken: string;
+    refreshToken: string;
+    expiresIn?: number;
+    expiresAt?: number;
+  }>): Promise<AuthSession> {
+    if (!input.accessToken || !input.refreshToken) {
+      throw new AuthServiceError('INVALID_RESPONSE', 'Magic-link callback did not include a complete session.');
+    }
+    let response: Response;
+    try {
+      response = await this.fetchImpl(`${this.config.url}/auth/v1/user`, {
+        method: 'GET',
+        headers: {
+          apikey: this.config.anonKey,
+          Authorization: `Bearer ${input.accessToken}`,
+        },
+      });
+    } catch (error) {
+      throw new AuthServiceError('NETWORK', error instanceof Error ? error.message : 'Could not verify the signed-in user.');
+    }
+    const text = await response.text();
+    let user: unknown = null;
+    try { user = text ? JSON.parse(text) as unknown : null; } catch { user = null; }
+    if (!response.ok) throw new AuthServiceError('AUTH_REJECTED', 'Could not verify the magic-link session.', response.status);
+    return this.acceptTokenResponse({
+      access_token: input.accessToken,
+      refresh_token: input.refreshToken,
+      ...(input.expiresAt !== undefined ? { expires_at: input.expiresAt } : {}),
+      ...(input.expiresIn !== undefined ? { expires_in: input.expiresIn } : {}),
+      user,
+    });
+  }
+
   async restoreSession(): Promise<AuthSession | null> {
     const serialized = await this.storage.getItem(SESSION_STORAGE_KEY);
     if (!serialized) {

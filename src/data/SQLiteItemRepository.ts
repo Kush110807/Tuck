@@ -31,19 +31,29 @@ import {
 import { PersistentImageStore, isSafeAppImagePath } from './PersistentImageStore';
 import {
   SYNC_PROTOCOL_VERSION,
+  type CanonicalAsset,
   type CanonicalCollection,
+  type CanonicalEntitySnapshot,
   type CanonicalItem,
+  type EntityTombstone,
+  type MutationConflict,
   type ChangeSequence,
   type SyncChange,
   type SyncEntityType,
   type SyncMutation,
 } from '../sync/protocol';
 import { isCanonicalMutationUuid, validateSyncMutationV1 } from '../sync/validation';
+import { makeConflictCopy } from '../sync/merge';
 import type {
   DurableOutboxMutation,
+  LocalAssetDownloadCandidate,
+  LocalAssetUploadCandidate,
   LocalBootstrapCheckpointUpdate,
+  LocalBootstrapPage,
   LocalEntitySyncState,
   LocalSyncCheckpoint,
+  LocalPushApplySummary,
+  LocalPushResultApplication,
   LocalSyncProfile,
   LocalSyncRepository,
 } from '../sync/localState';
@@ -139,6 +149,9 @@ type AssetSyncStateRow = {
   local_state: string;
   remote_state: string;
   upload_state: string;
+  upload_attempt_count: number;
+  download_attempt_count: number;
+  last_error_code: string | null;
   remote_mime_type: string | null;
   remote_byte_size: number | null;
 };
@@ -1249,10 +1262,561 @@ export class SQLiteItemRepository implements ItemRepository, OrganisationReposit
     });
   }
 
+  applyBootstrapPage(page: LocalBootstrapPage): Promise<Result<void>> {
+    return this.serialized(async () => {
+      if (!page.sessionId || !Number.isSafeInteger(page.snapshotHeadSequence) || page.snapshotHeadSequence < 0 ||
+          (page.nextAfterOrdinal !== null && (!Number.isSafeInteger(page.nextAfterOrdinal) || page.nextAfterOrdinal < 1))) {
+        return { ok: false, error: validationError('Bootstrap page metadata is invalid.') };
+      }
+      const database = this.requireDb();
+      if (!database.ok) return database;
+      const db = database.value;
+      try {
+        await db.withExclusiveTransactionAsync(async tx => {
+          const context = await this.syncContext(tx);
+          if (!context) throw new RepositoryAbort(validationError('Bootstrap requires an enabled account profile.'));
+          const pending = await tx.getFirstAsync<CountRow>('SELECT COUNT(*) AS count FROM sync_outbox');
+          if ((pending?.count ?? 0) > 0) {
+            throw new RepositoryAbort({ code: 'CONFLICT', message: 'Initial bootstrap cannot overwrite pending local changes.' });
+          }
+          const checkpoint = await tx.getFirstAsync<SyncStateRow>(
+            `SELECT pull_cursor, minimum_retained_sequence, initial_sync_state,
+                    bootstrap_session_id, bootstrap_after_ordinal, bootstrap_snapshot_head_sequence,
+                    catchup_target_head_sequence, last_successful_sync_at
+               FROM sync_state WHERE singleton = 1`,
+          );
+          if (!checkpoint) throw new Error('Local sync checkpoint is missing.');
+          if (checkpoint.bootstrap_session_id && checkpoint.bootstrap_session_id !== page.sessionId) {
+            throw new RepositoryAbort({ code: 'CONFLICT', message: 'Bootstrap session changed before the previous session was reset.' });
+          }
+          if (checkpoint.bootstrap_snapshot_head_sequence !== null &&
+              checkpoint.bootstrap_snapshot_head_sequence !== page.snapshotHeadSequence) {
+            throw new RepositoryAbort({ code: 'CONFLICT', message: 'Bootstrap snapshot head changed within one session.' });
+          }
+
+          let previousOrdinal = checkpoint.bootstrap_after_ordinal ?? 0;
+          for (const entry of page.entries) {
+            if (!Number.isSafeInteger(entry.ordinal) || entry.ordinal <= previousOrdinal) {
+              throw new RepositoryAbort(validationError('Bootstrap entries are not in deterministic ordinal order.'));
+            }
+            previousOrdinal = entry.ordinal;
+            const snapshot = entry.snapshot;
+            if (snapshot.entityType === 'asset') {
+              const asset = snapshot.entity;
+              const existing = await tx.getFirstAsync<AssetSyncStateRow>(
+                `SELECT asset_id, local_state, remote_state, upload_state, upload_attempt_count, download_attempt_count,
+                        last_error_code, remote_mime_type, remote_byte_size
+                   FROM asset_sync_state WHERE asset_id = ?`,
+                asset.id,
+              );
+              await tx.runAsync(
+                `INSERT INTO asset_sync_state (
+                   asset_id, local_state, remote_state, upload_state, upload_attempt_count,
+                   download_attempt_count, last_error_code, remote_mime_type, remote_byte_size, remote_cleanup_pending
+                 ) VALUES (?, ?, ?, 'not_required', 0, 0, NULL, ?, ?, 0)
+                 ON CONFLICT(asset_id) DO UPDATE SET
+                   remote_state = excluded.remote_state,
+                   remote_mime_type = excluded.remote_mime_type,
+                   remote_byte_size = excluded.remote_byte_size,
+                   upload_state = CASE WHEN asset_sync_state.upload_state = 'uploaded' THEN 'uploaded' ELSE 'not_required' END`,
+                asset.id,
+                existing?.local_state ?? 'remote_known_not_downloaded',
+                asset.remoteState,
+                asset.mimeType,
+                asset.byteSize,
+              );
+              continue;
+            }
+
+            if (snapshot.entityType === 'collection') {
+              const collection = snapshot.entity;
+              const prior = await this.getSyncEntityStateRow(tx, 'collection', collection.id);
+              await tx.runAsync(
+                `INSERT INTO collections (id, name, name_key, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?)
+                 ON CONFLICT(id) DO UPDATE SET
+                   name = excluded.name, name_key = excluded.name_key,
+                   created_at = excluded.created_at, updated_at = excluded.updated_at`,
+                collection.id,
+                collection.name,
+                collection.nameKey,
+                collection.createdAt,
+                collection.updatedAt,
+              );
+              const localRevision = (prior?.local_revision ?? 0) + 1;
+              await tx.runAsync(
+                `INSERT INTO sync_entity_state (entity_type, entity_id, local_revision, server_version, last_synced_local_revision)
+                 VALUES ('collection', ?, ?, ?, ?)
+                 ON CONFLICT(entity_type, entity_id) DO UPDATE SET
+                   local_revision = excluded.local_revision,
+                   server_version = excluded.server_version,
+                   last_synced_local_revision = excluded.last_synced_local_revision`,
+                collection.id, localRevision, collection.version, localRevision,
+              );
+              await tx.runAsync("DELETE FROM sync_local_tombstones WHERE entity_type='collection' AND entity_id=?", collection.id);
+              continue;
+            }
+
+            const item = snapshot.entity;
+            if (item.collectionId !== null && !(await this.getCollectionRow(tx, item.collectionId))) {
+              throw new RepositoryAbort(validationError('Bootstrap Item references a Collection not yet applied.'));
+            }
+            const prior = await this.getSyncEntityStateRow(tx, 'item', item.id);
+            const existing = await this.getItemRow(tx, item.id);
+            let imagePath: string | null = null;
+            if (item.type === 'image') {
+              if (!item.assetId) throw new RepositoryAbort(validationError('Bootstrap image Item is missing assetId.'));
+              imagePath = existing?.type === 'image' && existing.asset_id === item.assetId && existing.image_path
+                ? existing.image_path
+                : (`images/remote-${item.assetId.replace(/[^A-Za-z0-9._-]/g, '_')}.jpg`);
+              await tx.runAsync(
+                `INSERT INTO asset_sync_state (
+                   asset_id, local_state, remote_state, upload_state, upload_attempt_count,
+                   download_attempt_count, last_error_code, remote_cleanup_pending
+                 ) VALUES (?, 'remote_known_not_downloaded', 'unknown', 'not_required', 0, 0, NULL, 0)
+                 ON CONFLICT(asset_id) DO NOTHING`,
+                item.assetId,
+              );
+            } else if (item.assetId !== null) {
+              throw new RepositoryAbort(validationError('Bootstrap non-image Item must not contain assetId.'));
+            }
+            await tx.runAsync(
+              `INSERT INTO items (
+                 id, type, title, body, url, image_path, asset_id, created_at, updated_at,
+                 archived, collection_id, pinned
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(id) DO UPDATE SET
+                 type = excluded.type, title = excluded.title, body = excluded.body, url = excluded.url,
+                 image_path = excluded.image_path, asset_id = excluded.asset_id,
+                 created_at = excluded.created_at, updated_at = excluded.updated_at,
+                 archived = excluded.archived, collection_id = excluded.collection_id, pinned = excluded.pinned`,
+              item.id, item.type, item.title, item.body, item.url, imagePath, item.assetId,
+              item.createdAt, item.updatedAt, item.archived ? 1 : 0, item.collectionId, item.pinned ? 1 : 0,
+            );
+            await tx.runAsync('DELETE FROM item_tags WHERE item_id = ?', item.id);
+            for (let ordinal = 0; ordinal < item.tags.length; ordinal += 1) {
+              const display = item.tags[ordinal];
+              await tx.runAsync(
+                'INSERT INTO item_tags (item_id, tag_key, display, ordinal) VALUES (?, ?, ?, ?)',
+                item.id, toComparisonKey(display), display, ordinal,
+              );
+            }
+            const localRevision = (prior?.local_revision ?? 0) + 1;
+            await tx.runAsync(
+              `INSERT INTO sync_entity_state (entity_type, entity_id, local_revision, server_version, last_synced_local_revision)
+               VALUES ('item', ?, ?, ?, ?)
+               ON CONFLICT(entity_type, entity_id) DO UPDATE SET
+                 local_revision = excluded.local_revision,
+                 server_version = excluded.server_version,
+                 last_synced_local_revision = excluded.last_synced_local_revision`,
+              item.id, localRevision, item.version, localRevision,
+            );
+            await tx.runAsync("DELETE FROM sync_local_tombstones WHERE entity_type='item' AND entity_id=?", item.id);
+          }
+
+          const finished = page.nextAfterOrdinal === null;
+          await tx.runAsync(
+            `UPDATE sync_state
+                SET pull_cursor = CASE WHEN ? THEN ? ELSE pull_cursor END,
+                    initial_sync_state = ?, bootstrap_session_id = ?, bootstrap_after_ordinal = ?,
+                    bootstrap_snapshot_head_sequence = ?, catchup_target_head_sequence = NULL
+              WHERE singleton = 1`,
+            finished ? 1 : 0,
+            page.snapshotHeadSequence,
+            finished ? 'catching_up' : 'bootstrapping',
+            page.sessionId,
+            page.nextAfterOrdinal,
+            page.snapshotHeadSequence,
+          );
+        });
+        return { ok: true, value: undefined };
+      } catch (error) {
+        if (error instanceof RepositoryAbort) return { ok: false, error: error.appError };
+        return { ok: false, error: dbError('Could not apply bootstrap page.') };
+      }
+    });
+  }
+
+  resetBootstrapForRetry(): Promise<Result<void>> {
+    return this.serialized(async () => {
+      const database = this.requireDb();
+      if (!database.ok) return database;
+      try {
+        await database.value.withExclusiveTransactionAsync(async tx => {
+          const context = await this.syncContext(tx);
+          if (!context) throw new RepositoryAbort(validationError('Bootstrap reset requires an enabled account profile.'));
+          const pending = await tx.getFirstAsync<CountRow>('SELECT COUNT(*) AS count FROM sync_outbox');
+          if ((pending?.count ?? 0) > 0) {
+            throw new RepositoryAbort({ code: 'CONFLICT', message: 'Rebootstrap is blocked while local changes are waiting to sync.' });
+          }
+          await tx.execAsync(`
+            DELETE FROM item_tags;
+            DELETE FROM items;
+            DELETE FROM collections;
+            DELETE FROM sync_entity_state;
+            DELETE FROM sync_local_tombstones;
+            DELETE FROM asset_sync_state;
+            UPDATE sync_state
+               SET pull_cursor = 0,
+                   minimum_retained_sequence = 1,
+                   initial_sync_state = 'not_started',
+                   bootstrap_session_id = NULL,
+                   bootstrap_after_ordinal = NULL,
+                   bootstrap_snapshot_head_sequence = NULL,
+                   catchup_target_head_sequence = NULL,
+                   last_successful_sync_at = NULL
+             WHERE singleton = 1;
+          `);
+        });
+        return { ok: true, value: undefined };
+      } catch (error) {
+        if (error instanceof RepositoryAbort) return { ok: false, error: error.appError };
+        return { ok: false, error: dbError('Could not reset bootstrap state safely.') };
+      }
+    });
+  }
+
+  applyPushResults(applications: readonly LocalPushResultApplication[]): Promise<Result<LocalPushApplySummary>> {
+    return this.serialized(async () => {
+      const database = this.requireDb();
+      if (!database.ok) return database;
+      const db = database.value;
+      const blockedMutationIds: string[] = [];
+      let accepted = 0;
+      let conflicts = 0;
+      let resolvedConflicts = 0;
+      let rejected = 0;
+      try {
+        await db.withExclusiveTransactionAsync(async tx => {
+          const context = await this.syncContext(tx);
+          if (!context) throw new RepositoryAbort(validationError('Push acknowledgement requires an enabled account profile.'));
+          for (const application of applications) {
+            const { sent, result } = application;
+            if (result.mutationId !== sent.mutation.mutationId) {
+              throw new RepositoryAbort(validationError('Push result mutation ID does not match the sent outbox entry.'));
+            }
+            const persisted = await tx.getFirstAsync<OutboxRow>(
+              `SELECT position, mutation_id, entity_type, entity_id, action, base_server_version,
+                      changed_fields_json, base_values_json, new_values_json, created_local_revision,
+                      depends_on_asset_id, state, attempt_count, last_error_code, queued_at
+                 FROM sync_outbox WHERE mutation_id = ?`,
+              result.mutationId,
+            );
+            if (!persisted) continue;
+
+            if (result.kind === 'conflict') {
+              if (await this.resolveItemConflictCopy(tx, sent, result)) {
+                resolvedConflicts += 1;
+                continue;
+              }
+              conflicts += 1;
+              blockedMutationIds.push(result.mutationId);
+              await tx.runAsync(
+                `UPDATE sync_outbox SET state='blocked', attempt_count=attempt_count+1, last_error_code=? WHERE mutation_id=?`,
+                result.reason,
+                result.mutationId,
+              );
+              continue;
+            }
+            if (result.kind === 'rejected') {
+              rejected += 1;
+              blockedMutationIds.push(result.mutationId);
+              await tx.runAsync(
+                `UPDATE sync_outbox SET state='blocked', attempt_count=attempt_count+1, last_error_code=? WHERE mutation_id=?`,
+                result.code,
+                result.mutationId,
+              );
+              continue;
+            }
+
+            accepted += 1;
+            const hasNewerLocalRevision = persisted.created_local_revision > sent.createdLocalRevision;
+            const canonical = result.canonical;
+            if ('entity' in canonical) {
+              if (canonical.entityType === 'collection') {
+                const collection = canonical.entity;
+                const state = await this.getSyncEntityStateRow(tx, 'collection', collection.id);
+                const currentRevision = state?.local_revision ?? persisted.created_local_revision;
+                if (!hasNewerLocalRevision && currentRevision <= sent.createdLocalRevision) {
+                  await tx.runAsync(
+                    `INSERT INTO collections (id, name, name_key, created_at, updated_at)
+                     VALUES (?, ?, ?, ?, ?)
+                     ON CONFLICT(id) DO UPDATE SET
+                       name=excluded.name, name_key=excluded.name_key,
+                       created_at=excluded.created_at, updated_at=excluded.updated_at`,
+                    collection.id, collection.name, collection.nameKey, collection.createdAt, collection.updatedAt,
+                  );
+                  await tx.runAsync(
+                    `INSERT INTO sync_entity_state (entity_type, entity_id, local_revision, server_version, last_synced_local_revision)
+                     VALUES ('collection', ?, ?, ?, ?)
+                     ON CONFLICT(entity_type, entity_id) DO UPDATE SET
+                       server_version=excluded.server_version,
+                       last_synced_local_revision=excluded.last_synced_local_revision`,
+                    collection.id, Math.max(1, currentRevision), collection.version, Math.max(1, currentRevision),
+                  );
+                } else {
+                  await tx.runAsync(
+                    `UPDATE sync_entity_state SET server_version=?, last_synced_local_revision=?
+                      WHERE entity_type='collection' AND entity_id=?`,
+                    collection.version, sent.createdLocalRevision, collection.id,
+                  );
+                }
+              } else if (canonical.entityType === 'item') {
+                const item = canonical.entity;
+                const state = await this.getSyncEntityStateRow(tx, 'item', item.id);
+                const currentRevision = state?.local_revision ?? persisted.created_local_revision;
+                if (!hasNewerLocalRevision && currentRevision <= sent.createdLocalRevision) {
+                  if (item.collectionId !== null && !(await this.getCollectionRow(tx, item.collectionId))) {
+                    throw new RepositoryAbort(validationError('Accepted Item references a missing Collection.'));
+                  }
+                  const existing = await this.getItemRow(tx, item.id);
+                  let imagePath: string | null = null;
+                  if (item.type === 'image') {
+                    if (!item.assetId) throw new RepositoryAbort(validationError('Accepted image Item is missing assetId.'));
+                    imagePath = existing?.type === 'image' && existing.asset_id === item.assetId && existing.image_path
+                      ? existing.image_path
+                      : (`images/remote-${item.assetId.replace(/[^A-Za-z0-9._-]/g, '_')}.jpg`);
+                  }
+                  await tx.runAsync(
+                    `INSERT INTO items (
+                       id,type,title,body,url,image_path,asset_id,created_at,updated_at,archived,collection_id,pinned
+                     ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                     ON CONFLICT(id) DO UPDATE SET
+                       type=excluded.type,title=excluded.title,body=excluded.body,url=excluded.url,
+                       image_path=excluded.image_path,asset_id=excluded.asset_id,created_at=excluded.created_at,
+                       updated_at=excluded.updated_at,archived=excluded.archived,
+                       collection_id=excluded.collection_id,pinned=excluded.pinned`,
+                    item.id,item.type,item.title,item.body,item.url,imagePath,item.assetId,item.createdAt,item.updatedAt,
+                    item.archived ? 1 : 0,item.collectionId,item.pinned ? 1 : 0,
+                  );
+                  await tx.runAsync('DELETE FROM item_tags WHERE item_id=?', item.id);
+                  for (let ordinal=0; ordinal<item.tags.length; ordinal += 1) {
+                    const display=item.tags[ordinal];
+                    await tx.runAsync('INSERT INTO item_tags (item_id,tag_key,display,ordinal) VALUES (?,?,?,?)',
+                      item.id,toComparisonKey(display),display,ordinal);
+                  }
+                  await tx.runAsync(
+                    `INSERT INTO sync_entity_state (entity_type,entity_id,local_revision,server_version,last_synced_local_revision)
+                     VALUES ('item',?,?,?,?)
+                     ON CONFLICT(entity_type,entity_id) DO UPDATE SET
+                       server_version=excluded.server_version,
+                       last_synced_local_revision=excluded.last_synced_local_revision`,
+                    item.id,Math.max(1,currentRevision),item.version,Math.max(1,currentRevision),
+                  );
+                } else {
+                  await tx.runAsync(
+                    `UPDATE sync_entity_state SET server_version=?, last_synced_local_revision=?
+                      WHERE entity_type='item' AND entity_id=?`,
+                    item.version,sent.createdLocalRevision,item.id,
+                  );
+                }
+              }
+            } else {
+              const tombstone = canonical as EntityTombstone;
+              await tx.runAsync(
+                `UPDATE sync_local_tombstones
+                    SET server_version=?, pending_mutation_id=NULL
+                  WHERE entity_type=? AND entity_id=?`,
+                tombstone.deletedVersion,tombstone.entityType,tombstone.entityId,
+              );
+            }
+
+            await tx.runAsync('DELETE FROM sync_outbox WHERE mutation_id=?', result.mutationId);
+
+            // If an unsent local edit compacted the same durable row while this
+            // request was in flight, preserve that newer local state under a new
+            // mutation ID rebased on the accepted canonical server version.
+            if (hasNewerLocalRevision && 'entity' in canonical && canonical.entityType !== 'asset') {
+              await this.queueDeltaFromCanonical(tx, canonical, persisted.created_local_revision);
+            }
+          }
+        });
+        return { ok: true, value: { accepted, conflicts, resolvedConflicts, rejected, blockedMutationIds } };
+      } catch (error) {
+        if (error instanceof RepositoryAbort) return { ok: false, error: error.appError };
+        return { ok: false, error: dbError('Could not persist push results.') };
+      }
+    });
+  }
+
+  markOutboxTransportFailure(mutationIds: readonly string[], errorCode: string): Promise<Result<void>> {
+    return this.serialized(async () => {
+      if (!errorCode) return { ok: false, error: validationError('Sync transport error code is required.') };
+      const database = this.requireDb();
+      if (!database.ok) return database;
+      try {
+        await database.value.withExclusiveTransactionAsync(async tx => {
+          for (const mutationId of mutationIds) {
+            await tx.runAsync('UPDATE sync_outbox SET last_error_code=? WHERE mutation_id=?', errorCode, mutationId);
+          }
+        });
+        return { ok: true, value: undefined };
+      } catch {
+        return { ok: false, error: dbError('Could not persist sync transport failure state.') };
+      }
+    });
+  }
+
+  getAssetUploadCandidate(assetId: string): Promise<Result<LocalAssetUploadCandidate>> {
+    return this.serialized(async () => {
+      if (!assetId) return { ok: false, error: validationError('Asset ID is required.') };
+      const database = this.requireDb();
+      if (!database.ok) return database;
+      try {
+        const row = await database.value.getFirstAsync<{
+          asset_id: string; image_path: string; upload_state: LocalAssetUploadCandidate['uploadState'];
+          remote_state: LocalAssetUploadCandidate['remoteState']; upload_attempt_count: number;
+        }>(
+          `SELECT a.asset_id, i.image_path, a.upload_state, a.remote_state, a.upload_attempt_count
+             FROM asset_sync_state a
+             JOIN items i ON i.asset_id=a.asset_id
+            WHERE a.asset_id=? AND i.type='image' AND i.image_path IS NOT NULL
+            ORDER BY i.id ASC LIMIT 1`,
+          assetId,
+        );
+        if (!row || !isSafeAppImagePath(row.image_path)) {
+          return { ok: false, error: { code: 'NOT_FOUND', message: 'Local Asset bytes were not found.' } };
+        }
+        return { ok: true, value: {
+          assetId: row.asset_id,
+          imagePath: row.image_path,
+          uploadState: row.upload_state,
+          remoteState: row.remote_state,
+          uploadAttempts: row.upload_attempt_count,
+        } };
+      } catch {
+        return { ok: false, error: dbError('Could not load local Asset upload state.') };
+      }
+    });
+  }
+
+  markAssetUploadAttempt(assetId: string): Promise<Result<void>> {
+    return this.updateAssetState(assetId,
+      `UPDATE asset_sync_state
+          SET upload_state='pending', upload_attempt_count=upload_attempt_count+1, last_error_code=NULL
+        WHERE asset_id=?`,
+      'Could not mark Asset upload attempt.');
+  }
+
+  markAssetUploadReady(asset: CanonicalAsset): Promise<Result<void>> {
+    return this.serialized(async () => {
+      const database = this.requireDb();
+      if (!database.ok) return database;
+      try {
+        const result = await database.value.runAsync(
+          `UPDATE asset_sync_state
+              SET remote_state='ready', upload_state='uploaded', last_error_code=NULL,
+                  remote_mime_type=?, remote_byte_size=?
+            WHERE asset_id=?`,
+          asset.mimeType, asset.byteSize, asset.id,
+        );
+        if (result.changes === 0) return { ok: false, error: { code: 'NOT_FOUND', message: 'Asset sync state was not found.' } };
+        return { ok: true, value: undefined };
+      } catch {
+        return { ok: false, error: dbError('Could not persist uploaded Asset state.') };
+      }
+    });
+  }
+
+  markAssetUploadFailed(assetId: string, errorCode: string): Promise<Result<void>> {
+    return this.serialized(async () => {
+      const database = this.requireDb();
+      if (!database.ok) return database;
+      try {
+        await database.value.runAsync(
+          `UPDATE asset_sync_state SET upload_state='failed', last_error_code=? WHERE asset_id=?`,
+          errorCode || 'ASSET_UPLOAD_FAILED', assetId,
+        );
+        return { ok: true, value: undefined };
+      } catch {
+        return { ok: false, error: dbError('Could not persist Asset upload failure.') };
+      }
+    });
+  }
+
+  getAssetDownloadCandidateForPath(path: RelativeImagePath): Promise<Result<LocalAssetDownloadCandidate>> {
+    return this.serialized(async () => {
+      if (!isSafeAppImagePath(path)) return { ok: false, error: validationError('Image path is invalid.') };
+      const database = this.requireDb();
+      if (!database.ok) return database;
+      try {
+        const row = await database.value.getFirstAsync<{
+          asset_id: string; image_path: string; local_state: LocalAssetDownloadCandidate['localState'];
+          download_attempt_count: number; remote_mime_type: CanonicalAsset['mimeType'] | null; remote_byte_size: number | null;
+          remote_state: string;
+        }>(
+          `SELECT a.asset_id, i.image_path, a.local_state, a.download_attempt_count,
+                  a.remote_mime_type, a.remote_byte_size, a.remote_state
+             FROM items i JOIN asset_sync_state a ON a.asset_id=i.asset_id
+            WHERE i.image_path=? AND i.type='image' LIMIT 1`,
+          path,
+        );
+        if (!row || row.remote_state !== 'ready' || !row.remote_mime_type || row.remote_byte_size === null) {
+          return { ok: false, error: { code: 'NOT_FOUND', message: 'Remote Asset is not ready for download.' } };
+        }
+        return { ok: true, value: {
+          assetId: row.asset_id,
+          imagePath: row.image_path as RelativeImagePath,
+          mimeType: row.remote_mime_type,
+          byteSize: row.remote_byte_size,
+          localState: row.local_state,
+          downloadAttempts: row.download_attempt_count,
+        } };
+      } catch {
+        return { ok: false, error: dbError('Could not load remote Asset download state.') };
+      }
+    });
+  }
+
+  markAssetDownloadAttempt(assetId: string): Promise<Result<void>> {
+    return this.updateAssetState(assetId,
+      `UPDATE asset_sync_state
+          SET local_state='download_pending', download_attempt_count=download_attempt_count+1, last_error_code=NULL
+        WHERE asset_id=?`,
+      'Could not mark Asset download attempt.');
+  }
+
+  markAssetDownloaded(assetId: string, path: RelativeImagePath): Promise<Result<void>> {
+    return this.serialized(async () => {
+      if (!isSafeAppImagePath(path)) return { ok: false, error: validationError('Downloaded image path is invalid.') };
+      const database = this.requireDb();
+      if (!database.ok) return database;
+      try {
+        await database.value.withExclusiveTransactionAsync(async tx => {
+          await tx.runAsync(
+            `UPDATE asset_sync_state SET local_state='available', last_error_code=NULL WHERE asset_id=?`,
+            assetId,
+          );
+          await tx.runAsync(`UPDATE items SET image_path=? WHERE asset_id=? AND type='image'`, path, assetId);
+        });
+        return { ok: true, value: undefined };
+      } catch {
+        return { ok: false, error: dbError('Could not persist downloaded Asset state.') };
+      }
+    });
+  }
+
+  markAssetDownloadFailed(assetId: string, errorCode: string): Promise<Result<void>> {
+    return this.serialized(async () => {
+      const database = this.requireDb();
+      if (!database.ok) return database;
+      try {
+        await database.value.runAsync(
+          `UPDATE asset_sync_state SET local_state='download_failed', last_error_code=? WHERE asset_id=?`,
+          errorCode || 'ASSET_DOWNLOAD_FAILED', assetId,
+        );
+        return { ok: true, value: undefined };
+      } catch {
+        return { ok: false, error: dbError('Could not persist Asset download failure.') };
+      }
+    });
+  }
+
   applyRemoteChanges(
     changes: readonly SyncChange[],
     nextPullCursor: ChangeSequence,
     minimumRetainedSequence?: ChangeSequence,
+    options?: Readonly<{ completeInitialSyncAtTarget?: ChangeSequence }>,
   ): Promise<Result<void>> {
     return this.serialized(async () => {
       if (!Number.isSafeInteger(nextPullCursor) || nextPullCursor < 0 ||
@@ -1471,13 +2035,27 @@ export class SQLiteItemRepository implements ItemRepository, OrganisationReposit
             );
           }
 
+          const completeTarget = options?.completeInitialSyncAtTarget;
+          if (completeTarget !== undefined && nextPullCursor !== completeTarget) {
+            throw new RepositoryAbort(validationError('Initial sync cannot complete before the captured target head.'));
+          }
           await tx.runAsync(
             `UPDATE sync_state
-                SET pull_cursor = ?, minimum_retained_sequence = ?, last_successful_sync_at = ?
+                SET pull_cursor = ?, minimum_retained_sequence = ?, last_successful_sync_at = ?,
+                    initial_sync_state = CASE WHEN ? THEN 'complete' ELSE initial_sync_state END,
+                    bootstrap_session_id = CASE WHEN ? THEN NULL ELSE bootstrap_session_id END,
+                    bootstrap_after_ordinal = CASE WHEN ? THEN NULL ELSE bootstrap_after_ordinal END,
+                    bootstrap_snapshot_head_sequence = CASE WHEN ? THEN NULL ELSE bootstrap_snapshot_head_sequence END,
+                    catchup_target_head_sequence = CASE WHEN ? THEN NULL ELSE catchup_target_head_sequence END
               WHERE singleton = 1`,
             nextPullCursor,
             minimumRetainedSequence ?? checkpoint.minimum_retained_sequence,
             this.now(),
+            completeTarget !== undefined ? 1 : 0,
+            completeTarget !== undefined ? 1 : 0,
+            completeTarget !== undefined ? 1 : 0,
+            completeTarget !== undefined ? 1 : 0,
+            completeTarget !== undefined ? 1 : 0,
           );
         });
         await this.runImageMaintenanceBestEffort(db);
@@ -2190,6 +2768,265 @@ export class SQLiteItemRepository implements ItemRepository, OrganisationReposit
       pendingMutationId,
       this.now(),
     );
+  }
+
+  private updateAssetState(assetId: string, sql: string, message: string): Promise<Result<void>> {
+    return this.serialized(async () => {
+      if (!assetId) return { ok: false, error: validationError('Asset ID is required.') };
+      const database = this.requireDb();
+      if (!database.ok) return database;
+      try {
+        const result = await database.value.runAsync(sql, assetId);
+        if (result.changes === 0) return { ok: false, error: { code: 'NOT_FOUND', message: 'Asset sync state was not found.' } };
+        return { ok: true, value: undefined };
+      } catch {
+        return { ok: false, error: dbError(message) };
+      }
+    });
+  }
+
+  private async resolveItemConflictCopy(
+    tx: Tx,
+    sent: DurableOutboxMutation,
+    conflict: MutationConflict,
+  ): Promise<boolean> {
+    if (sent.mutation.entityType !== 'item' ||
+        (conflict.reason !== 'AUTHORED_FIELD_CONFLICT' && conflict.reason !== 'REMOTE_DELETED')) {
+      return false;
+    }
+
+    const localRow = await this.getItemRow(tx, sent.mutation.entityId);
+    if (!localRow) return false;
+    const localTags = await this.getTags(tx, localRow.id);
+    const localItem: Omit<CanonicalItem, 'version'> = {
+      id: localRow.id,
+      type: localRow.type,
+      title: localRow.title,
+      body: localRow.body,
+      url: localRow.url,
+      assetId: localRow.asset_id,
+      tags: [...localTags],
+      collectionId: localRow.collection_id,
+      pinned: localRow.pinned === 1,
+      archived: localRow.archived === 1,
+      createdAt: localRow.created_at,
+      updatedAt: localRow.updated_at,
+    };
+    const previousState = await this.getSyncEntityStateRow(tx, 'item', localRow.id);
+    const canonicalLocalRevision = (previousState?.local_revision ?? sent.createdLocalRevision) + 1;
+
+    if ('deletedVersion' in conflict.current) {
+      if (conflict.current.entityType !== 'item' || conflict.current.entityId !== localRow.id) {
+        throw new RepositoryAbort(validationError('Item conflict tombstone does not match the local Item.'));
+      }
+      // Do not enqueue the local image path for deletion: the conflict copy below
+      // deliberately reuses the same immutable Asset/local bytes.
+      await tx.runAsync('DELETE FROM items WHERE id = ?', localRow.id);
+      await this.insertOrReplaceLocalTombstone(
+        tx,
+        'item',
+        localRow.id,
+        canonicalLocalRevision,
+        conflict.current.deletedVersion,
+        null,
+      );
+      await tx.runAsync("DELETE FROM sync_entity_state WHERE entity_type='item' AND entity_id=?", localRow.id);
+    } else {
+      if (conflict.current.entityType !== 'item' || conflict.current.entity.id !== localRow.id) {
+        throw new RepositoryAbort(validationError('Item conflict canonical state does not match the local Item.'));
+      }
+      const server = conflict.current.entity;
+      if (server.collectionId !== null && !(await this.getCollectionRow(tx, server.collectionId))) {
+        throw new RepositoryAbort(validationError('Conflict canonical Item references a missing Collection.'));
+      }
+      let imagePath: string | null = null;
+      if (server.type === 'image') {
+        if (!server.assetId) throw new RepositoryAbort(validationError('Conflict canonical image Item is missing assetId.'));
+        imagePath = localRow.type === 'image' && localRow.asset_id === server.assetId && localRow.image_path
+          ? localRow.image_path
+          : (`images/remote-${server.assetId.replace(/[^A-Za-z0-9._-]/g, '_')}.jpg`);
+        await tx.runAsync(
+          `INSERT INTO asset_sync_state (
+             asset_id, local_state, remote_state, upload_state, upload_attempt_count,
+             download_attempt_count, last_error_code, remote_cleanup_pending
+           ) VALUES (?, 'remote_known_not_downloaded', 'unknown', 'not_required', 0, 0, NULL, 0)
+           ON CONFLICT(asset_id) DO NOTHING`,
+          server.assetId,
+        );
+      }
+      await tx.runAsync(
+        `INSERT INTO items (
+           id,type,title,body,url,image_path,asset_id,created_at,updated_at,archived,collection_id,pinned
+         ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(id) DO UPDATE SET
+           type=excluded.type,title=excluded.title,body=excluded.body,url=excluded.url,
+           image_path=excluded.image_path,asset_id=excluded.asset_id,created_at=excluded.created_at,
+           updated_at=excluded.updated_at,archived=excluded.archived,
+           collection_id=excluded.collection_id,pinned=excluded.pinned`,
+        server.id,server.type,server.title,server.body,server.url,imagePath,server.assetId,
+        server.createdAt,server.updatedAt,server.archived ? 1 : 0,server.collectionId,server.pinned ? 1 : 0,
+      );
+      await tx.runAsync('DELETE FROM item_tags WHERE item_id=?', server.id);
+      for (let ordinal = 0; ordinal < server.tags.length; ordinal += 1) {
+        const display = server.tags[ordinal];
+        await tx.runAsync(
+          'INSERT INTO item_tags (item_id,tag_key,display,ordinal) VALUES (?,?,?,?)',
+          server.id,toComparisonKey(display),display,ordinal,
+        );
+      }
+      await tx.runAsync(
+        `INSERT INTO sync_entity_state (entity_type,entity_id,local_revision,server_version,last_synced_local_revision)
+         VALUES ('item',?,?,?,?)
+         ON CONFLICT(entity_type,entity_id) DO UPDATE SET
+           local_revision=excluded.local_revision,
+           server_version=excluded.server_version,
+           last_synced_local_revision=excluded.last_synced_local_revision`,
+        server.id,canonicalLocalRevision,server.version,canonicalLocalRevision,
+      );
+      await tx.runAsync("DELETE FROM sync_local_tombstones WHERE entity_type='item' AND entity_id=?", server.id);
+    }
+
+    await tx.runAsync('DELETE FROM sync_outbox WHERE mutation_id=?', conflict.mutationId);
+
+    const validCollectionIds = new Set<string>();
+    if (localItem.collectionId && await this.getCollectionRow(tx, localItem.collectionId)) {
+      validCollectionIds.add(localItem.collectionId);
+    }
+    const copyId = this.createId();
+    if (typeof copyId !== 'string' || copyId.length === 0) throw new Error('Conflict-copy Item ID generator returned an invalid ID.');
+    const copy = makeConflictCopy({
+      localItem,
+      originalItemId: localRow.id,
+      newItemId: copyId,
+      validCollectionIds,
+    });
+    const copyRow: ItemRow = {
+      id: copy.id,
+      type: copy.type,
+      title: copy.title,
+      body: copy.body,
+      url: copy.url,
+      image_path: copy.type === 'image' ? localRow.image_path : null,
+      asset_id: copy.assetId,
+      created_at: copy.createdAt,
+      updated_at: copy.updatedAt,
+      archived: copy.archived ? 1 : 0,
+      collection_id: copy.collectionId,
+      pinned: copy.pinned ? 1 : 0,
+    };
+    await tx.runAsync(
+      `INSERT INTO items (id,type,title,body,url,image_path,asset_id,created_at,updated_at,archived,collection_id,pinned)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+      copyRow.id,copyRow.type,copyRow.title,copyRow.body,copyRow.url,copyRow.image_path,copyRow.asset_id,
+      copyRow.created_at,copyRow.updated_at,copyRow.archived,copyRow.collection_id,copyRow.pinned,
+    );
+    for (let ordinal = 0; ordinal < copy.tags.length; ordinal += 1) {
+      const display = copy.tags[ordinal];
+      await tx.runAsync(
+        'INSERT INTO item_tags (item_id,tag_key,display,ordinal) VALUES (?,?,?,?)',
+        copy.id,toComparisonKey(display),display,ordinal,
+      );
+    }
+    const copyRevision = await this.insertEntitySyncState(tx, 'item', copy.id);
+    await this.queueCreateMutation(
+      tx,
+      'item',
+      copy.id,
+      copyRevision,
+      this.itemCreateValues(copyRow, copy.tags),
+      copy.assetId,
+    );
+    return true;
+  }
+
+  private async queueDeltaFromCanonical(
+    tx: Tx,
+    canonical: Exclude<CanonicalEntitySnapshot, Readonly<{ entityType: 'asset'; entity: CanonicalAsset }>>,
+    localRevision: number,
+  ): Promise<void> {
+    if (canonical.entityType === 'collection') {
+      const current = await this.getCollectionRow(tx, canonical.entity.id);
+      if (!current) return;
+      const changedFields: string[] = [];
+      const baseValues: Record<string, unknown> = {};
+      const newValues: Record<string, unknown> = {};
+      if (current.name !== canonical.entity.name) {
+        changedFields.push('name');
+        baseValues.name = canonical.entity.name;
+        newValues.name = current.name;
+      }
+      if (changedFields.length === 0) return;
+      changedFields.push('updatedAt');
+      newValues.updatedAt = current.updated_at;
+      await this.insertOutboxRow(tx, {
+        mutationId: this.allocateMutationId(),
+        entityType: 'collection',
+        entityId: current.id,
+        action: 'patch',
+        baseServerVersion: canonical.entity.version,
+        changedFields,
+        baseValues,
+        newValues,
+        createdLocalRevision: localRevision,
+      });
+      return;
+    }
+
+    const current = await this.getItemRow(tx, canonical.entity.id);
+    if (!current) return;
+    const currentTags = await this.getTags(tx, current.id);
+    const server = canonical.entity;
+    const changedFields: string[] = [];
+    const baseValues: Record<string, unknown> = {};
+    const newValues: Record<string, unknown> = {};
+    const currentValues: Record<string, unknown> = {
+      title: current.title,
+      body: current.body,
+      url: current.url,
+      assetId: current.asset_id,
+      tags: currentTags,
+      collectionId: current.collection_id,
+      pinned: current.pinned === 1,
+      archived: current.archived === 1,
+      updatedAt: current.updated_at,
+    };
+    const serverValues: Record<string, unknown> = {
+      title: server.title,
+      body: server.body,
+      url: server.url,
+      assetId: server.assetId,
+      tags: server.tags,
+      collectionId: server.collectionId,
+      pinned: server.pinned,
+      archived: server.archived,
+      updatedAt: server.updatedAt,
+    };
+    for (const field of ['title', 'body', 'url', 'assetId', 'tags', 'collectionId', 'pinned', 'archived'] as const) {
+      const left = currentValues[field];
+      const right = serverValues[field];
+      const same = Array.isArray(left) && Array.isArray(right)
+        ? left.length === right.length && left.every((value, index) => value === right[index])
+        : left === right;
+      if (same) continue;
+      changedFields.push(field);
+      baseValues[field] = right;
+      newValues[field] = left;
+    }
+    if (changedFields.length === 0) return;
+    changedFields.push('updatedAt');
+    newValues.updatedAt = current.updated_at;
+    await this.insertOutboxRow(tx, {
+      mutationId: this.allocateMutationId(),
+      entityType: 'item',
+      entityId: current.id,
+      action: 'patch',
+      baseServerVersion: server.version,
+      changedFields,
+      baseValues,
+      newValues,
+      createdLocalRevision: localRevision,
+      dependsOnAssetId: current.asset_id,
+    });
   }
 
   private async getCollectionRow(db: Tx, id: CollectionId): Promise<CollectionRow | null> {

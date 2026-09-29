@@ -31,6 +31,7 @@ export type ProductionServices = Readonly<{
 }>;
 
 const ServicesContext = createContext<ProductionServices | null>(null);
+const SyncRevisionContext = createContext(0);
 const Stack = createNativeStackNavigator<RootStackParams>();
 
 function useServices(): ProductionServices {
@@ -61,6 +62,7 @@ function useHardwareBack(handler: () => void): void {
 
 function InboxRoute() {
   const services = useServices();
+  const syncRevision = useContext(SyncRevisionContext);
   const controller = useMemo(() => createInboxController(
     services.repository,
     services.imageStore,
@@ -70,12 +72,14 @@ function InboxRoute() {
   const props = useControllerProps(controller);
   const focus = useCallback(() => controller.onFocus(), [controller]);
   useControllerFocus(focus);
+  useEffect(() => { if (syncRevision > 0) void controller.refresh(); }, [controller, syncRevision]);
 
   return <ScreenFrame><InboxScreen {...props} /></ScreenFrame>;
 }
 
 function ArchiveRoute() {
   const services = useServices();
+  const syncRevision = useContext(SyncRevisionContext);
   const controller = useMemo(() => createArchiveController(
     services.repository,
     services.imageStore,
@@ -86,6 +90,7 @@ function ArchiveRoute() {
   const focus = useCallback(() => controller.onFocus(), [controller]);
   const back = useCallback(() => controller.props.onBack(), [controller]);
   useControllerFocus(focus);
+  useEffect(() => { if (syncRevision > 0) void controller.refresh(); }, [controller, syncRevision]);
   useHardwareBack(back);
 
   return <ScreenFrame><ArchiveScreen {...props} /></ScreenFrame>;
@@ -118,6 +123,7 @@ function EditorRoute({ route }: NativeStackScreenProps<RootStackParams, 'Editor'
 
 function DetailRoute({ route }: NativeStackScreenProps<RootStackParams, 'Detail'>) {
   const services = useServices();
+  const syncRevision = useContext(SyncRevisionContext);
   const controller = useMemo(() => createDetailController(
     route.params.id,
     route.params.origin,
@@ -131,14 +137,16 @@ function DetailRoute({ route }: NativeStackScreenProps<RootStackParams, 'Detail'
   const focus = useCallback(() => controller.onFocus(), [controller]);
   const back = useCallback(() => controller.props.onBack(), [controller]);
   useControllerFocus(focus);
+  useEffect(() => { if (syncRevision > 0) void controller.refresh(); }, [controller, syncRevision]);
   useHardwareBack(back);
 
   return <ScreenFrame><DetailScreen {...props} /></ScreenFrame>;
 }
 
-export function AppNavigator({ services }: { services: ProductionServices }) {
+export function AppNavigator({ services, dataRevision = 0 }: { services: ProductionServices; dataRevision?: number }) {
   return (
     <ServicesContext.Provider value={services}>
+      <SyncRevisionContext.Provider value={dataRevision}>
       <NavigationContainer ref={navigationRef}>
         <Stack.Navigator
           initialRouteName="Inbox"
@@ -154,6 +162,7 @@ export function AppNavigator({ services }: { services: ProductionServices }) {
           <Stack.Screen name="Archive" component={ArchiveRoute} />
         </Stack.Navigator>
       </NavigationContainer>
+      </SyncRevisionContext.Provider>
     </ServicesContext.Provider>
   );
 }

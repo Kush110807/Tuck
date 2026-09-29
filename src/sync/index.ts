@@ -3,5 +3,7 @@ export * from './merge';
 export * from './profileState';
 export * from './protocol';
 export * from './validation';
-
 export * from './localState';
+export * from './SyncEngine';
+export * from './SyncTriggerRepository';
+export * from './transport';
