@@ -5,6 +5,8 @@ import { SyncTransportError } from './SupabaseSyncTransport';
 
 type FetchLike = typeof fetch;
 
+const defaultFetch: FetchLike = (input, init) => globalThis.fetch(input, init);
+
 export type AssetStagingResponse =
   | Readonly<{ kind: 'staging' | 'existing'; assetId: string; storagePath: string; state?: 'staging' | 'ready'; version: number }>
   | Readonly<{ kind: 'error'; code: string; message?: string }>;
@@ -26,7 +28,7 @@ export class SupabaseAssetTransport {
   constructor(
     private readonly config: SupabasePublicConfig,
     private readonly accessToken: AccessTokenProvider,
-    private readonly fetchImpl: FetchLike = fetch,
+    private readonly fetchImpl: FetchLike = defaultFetch,
   ) {}
 
   async createStaging(assetId: string, mimeType: CanonicalAsset['mimeType'], byteSize: number): Promise<AssetStagingResponse> {

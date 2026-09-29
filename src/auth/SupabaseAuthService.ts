@@ -12,6 +12,8 @@ const REFRESH_SKEW_MS = 60_000;
 
 type FetchLike = typeof fetch;
 
+const defaultFetch: FetchLike = (input, init) => globalThis.fetch(input, init);
+
 type GoTrueTokenResponse = Readonly<{
   access_token?: unknown;
   refresh_token?: unknown;
@@ -72,7 +74,7 @@ export class SupabaseAuthService {
   constructor(
     private readonly config: SupabasePublicConfig,
     private readonly storage: AuthStorage,
-    private readonly fetchImpl: FetchLike = fetch,
+    private readonly fetchImpl: FetchLike = defaultFetch,
     private readonly now: () => number = Date.now,
   ) {}
 
@@ -111,7 +113,7 @@ export class SupabaseAuthService {
     await this.request(path, {
       method: 'POST',
       body: JSON.stringify({ email: normalized, create_user: true }),
-    }, false);
+    });
   }
 
   /**
@@ -191,7 +193,6 @@ export class SupabaseAuthService {
     const payload = await this.request(
       '/auth/v1/token?grant_type=refresh_token',
       { method: 'POST', body: JSON.stringify({ refresh_token: current.refreshToken }) },
-      false,
     );
     const next = parseTokenResponse(payload, this.now());
     if (!next) throw new AuthServiceError('INVALID_RESPONSE', 'Supabase returned an invalid refreshed session.');
@@ -214,7 +215,7 @@ export class SupabaseAuthService {
       method: 'POST',
       headers: { Authorization: `Bearer ${current.accessToken}` },
       body: '{}',
-    }, true);
+    });
   }
 
   private async signOut(scope: 'local' | 'global'): Promise<void> {
@@ -226,7 +227,7 @@ export class SupabaseAuthService {
         await this.request(`/auth/v1/logout?scope=${scope}`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${current.accessToken}` },
-        }, false);
+        });
       }
     } finally {
       await this.clearLocalSession();
@@ -253,17 +254,14 @@ export class SupabaseAuthService {
     for (const listener of this.listeners) listener(state);
   }
 
-  private async request(path: string, init: RequestInit, isRest: boolean): Promise<unknown> {
+  private async request(path: string, init: RequestInit): Promise<unknown> {
     let response: Response;
     try {
       response = await this.fetchImpl(`${this.config.url}${path}`, {
         ...init,
         headers: {
           apikey: this.config.anonKey,
-          ...(isRest ? { 'Content-Type': 'application/json' } : {
-            Authorization: `Bearer ${this.config.anonKey}`,
-            'Content-Type': 'application/json',
-          }),
+          'Content-Type': 'application/json',
           ...init.headers,
         },
       });

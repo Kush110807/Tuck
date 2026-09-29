@@ -9,7 +9,9 @@ describe('Phase 6B sync transport boundary', () => {
   it('calls the hardened push RPC without touching local persistence', async () => {
     const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
       expect(url).toBe('https://example.supabase.co/rest/v1/rpc/tuck_push_mutations');
-      expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer user-token');
+      const headers = new Headers(init?.headers);
+      expect(headers.get('apikey')).toBe(CONFIG.anonKey);
+      expect(headers.get('Authorization')).toBe('Bearer user-token');
       expect(JSON.parse(String(init?.body))).toEqual({
         p_request: { protocolVersion: 1, accountId: ACCOUNT, mutations: [] },
       });
@@ -18,6 +20,21 @@ describe('Phase 6B sync transport boundary', () => {
     const transport = new SupabaseSyncTransport(CONFIG, () => 'user-token', fetchImpl as unknown as typeof fetch);
     await expect(transport.pushMutations({ protocolVersion: SYNC_PROTOCOL_VERSION, accountId: ACCOUNT, mutations: [] }))
       .resolves.toMatchObject({ kind: 'ok', headSequence: 0 });
+  });
+
+  it('uses the browser-safe default fetch wrapper', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async function (this: unknown, _input, _init) {
+      expect(this).toBe(globalThis);
+      return new Response(JSON.stringify({ kind: 'ok', protocolVersion: 1, accountId: ACCOUNT, results: [], headSequence: 0 }), { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchImpl);
+    try {
+      const transport = new SupabaseSyncTransport(CONFIG, () => 'user-token');
+      await transport.pushMutations({ protocolVersion: SYNC_PROTOCOL_VERSION, accountId: ACCOUNT, mutations: [] });
+      expect(fetchImpl).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('calls pull/bootstrap RPCs with the frozen wire request inside p_request', async () => {

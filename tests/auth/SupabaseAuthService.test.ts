@@ -62,8 +62,11 @@ describe('Phase 6B Supabase auth foundation', () => {
     const seed = new SupabaseAuthService(CONFIG, storage, vi.fn() as unknown as typeof fetch, () => 1_000);
     await seed.acceptTokenResponse(token({ expires_in: 1 }));
 
-    const fetchImpl = vi.fn(async (url: string) => {
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
       expect(url).toContain('/auth/v1/token?grant_type=refresh_token');
+      const headers = new Headers(init?.headers);
+      expect(headers.get('apikey')).toBe(CONFIG.anonKey);
+      expect(headers.get('Authorization')).toBeNull();
       return jsonResponse(token({ access_token: 'access-2', refresh_token: 'refresh-2' }));
     });
     const service = new SupabaseAuthService(CONFIG, storage, fetchImpl as unknown as typeof fetch, () => 5_000);
@@ -75,7 +78,9 @@ describe('Phase 6B Supabase auth foundation', () => {
     const storage = new MemoryAuthStorage();
     const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
       expect(url).toBe('https://example.supabase.co/auth/v1/user');
-      expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer callback-access');
+      const headers = new Headers(init?.headers);
+      expect(headers.get('apikey')).toBe(CONFIG.anonKey);
+      expect(headers.get('Authorization')).toBe('Bearer callback-access');
       return jsonResponse({ id: '11111111-1111-4111-8111-111111111111', email: 'a@example.com' });
     });
     const service = new SupabaseAuthService(CONFIG, storage, fetchImpl as unknown as typeof fetch, () => 1_000);
@@ -85,10 +90,28 @@ describe('Phase 6B Supabase auth foundation', () => {
     await expect(restored.restoreSession()).resolves.toMatchObject({ refreshToken: 'callback-refresh' });
   });
 
+  it('uses the browser-safe default fetch wrapper', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async function (this: unknown, _input, _init) {
+      expect(this).toBe(globalThis);
+      return jsonResponse({});
+    });
+    vi.stubGlobal('fetch', fetchImpl);
+    try {
+      const service = new SupabaseAuthService(CONFIG, new MemoryAuthStorage());
+      await service.requestMagicLink('n@example.com');
+      expect(fetchImpl).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('initiates email magic-link auth through the Supabase OTP endpoint', async () => {
     const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
       expect(url).toBe('https://example.supabase.co/auth/v1/otp?redirect_to=tuck%3A%2F%2Fauth%2Fcallback');
       expect(init?.method).toBe('POST');
+      const headers = new Headers(init?.headers);
+      expect(headers.get('apikey')).toBe(CONFIG.anonKey);
+      expect(headers.get('Authorization')).toBeNull();
       expect(JSON.parse(String(init?.body))).toEqual({ email: 'n@example.com', create_user: true });
       return jsonResponse({});
     });

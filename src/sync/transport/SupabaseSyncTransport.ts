@@ -10,6 +10,8 @@ import type {
 
 type FetchLike = typeof fetch;
 
+const defaultFetch: FetchLike = (input, init) => globalThis.fetch(input, init);
+
 export class SyncTransportError extends Error {
   constructor(message: string, readonly status?: number) {
     super(message);
@@ -27,7 +29,7 @@ export class SupabaseSyncTransport {
   constructor(
     private readonly config: SupabasePublicConfig,
     private readonly accessToken: AccessTokenProvider,
-    private readonly fetchImpl: FetchLike = fetch,
+    private readonly fetchImpl: FetchLike = defaultFetch,
   ) {}
 
   pushMutations(request: PushMutationsRequest): Promise<PushMutationsResponse> {
