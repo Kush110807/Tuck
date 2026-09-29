@@ -2,7 +2,7 @@
 
 ## Account identity and authorization
 
-`auth.users.id` is the sole account authority. A trigger initializes `public.accounts` and `private.account_sync_heads`. RPC request `accountId` is only a protocol field and must equal `auth.uid()`. Direct client DML is revoked; public user-owned tables have own-row RLS for defense in depth, while protocol tables live in the non-exposed `private` schema.
+`auth.users.id` is the sole account authority. A trigger initializes `public.accounts` and `private.account_sync_heads`. Hardened RPC caller identity is derived from the validated JWT subject through `private.tuck_current_user_id()`, which mirrors `auth.uid()` null/UUID semantics without requiring the custom RPC owner to access Supabase's protected `auth` schema. RPC request `accountId` is only a protocol field and must equal that derived caller identity. Direct client DML is revoked; public user-owned tables have own-row RLS for defense in depth, while protocol tables live in the non-exposed `private` schema.
 
 The public RPCs are `SECURITY DEFINER` functions owned by the dedicated `tuck_rpc_owner` (`NOLOGIN`, `NOINHERIT`, `BYPASSRLS`) role. Client roles cannot execute private helpers, cannot execute public sync RPCs as `anon`, and cannot directly read/write protocol state. Functions use a fixed search path, schema-qualified authenticated identity and no dynamic SQL.
 

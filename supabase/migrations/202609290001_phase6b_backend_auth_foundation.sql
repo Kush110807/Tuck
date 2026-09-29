@@ -1072,6 +1072,21 @@ END
 $$;
 
 -- ---------------------------------------------------------------------------
+-- Authenticated caller identity for hardened RPCs. This deliberately mirrors
+-- Supabase auth.uid() JWT-sub semantics without requiring the custom
+-- SECURITY DEFINER owner to access the protected auth schema.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION private.tuck_current_user_id()
+RETURNS uuid
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = pg_catalog
+AS $$
+  SELECT nullif(pg_catalog.current_setting('request.jwt.claim.sub', true), '')::uuid
+$$;
+
+-- ---------------------------------------------------------------------------
 -- Public RPCs. SECURITY DEFINER + fixed search_path + authenticated identity.
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.tuck_push_mutations(p_request jsonb)
@@ -1080,7 +1095,7 @@ LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, public, private
 AS $$
 DECLARE
-  v_uid uuid := auth.uid();
+  v_uid uuid := private.tuck_current_user_id();
   v_results jsonb := '[]'::jsonb;
   v_mutation jsonb;
   v_head bigint;
@@ -1120,7 +1135,7 @@ LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, public, private
 AS $$
 DECLARE
-  v_uid uuid := auth.uid();
+  v_uid uuid := private.tuck_current_user_id();
   v_after bigint;
   v_limit integer;
   v_target bigint;
@@ -1188,7 +1203,7 @@ LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, public, private, extensions
 AS $$
 DECLARE
-  v_uid uuid := auth.uid();
+  v_uid uuid := private.tuck_current_user_id();
   v_page_size integer;
   v_after bigint := 0;
   v_session uuid;
@@ -1310,7 +1325,7 @@ RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, public
 AS $$
-DECLARE v_uid uuid:=auth.uid();
+DECLARE v_uid uuid:=private.tuck_current_user_id();
 BEGIN
   IF v_uid IS NULL THEN RETURN jsonb_build_object('kind','error','code','UNAUTHENTICATED'); END IF;
   UPDATE public.accounts SET status='deleting' WHERE user_id=v_uid;
@@ -1326,7 +1341,7 @@ LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, public, private
 AS $$
 DECLARE
-  v_uid uuid:=auth.uid(); v_ext text; v_path text; v_existing public.assets%ROWTYPE;
+  v_uid uuid:=private.tuck_current_user_id(); v_ext text; v_path text; v_existing public.assets%ROWTYPE;
 BEGIN
   IF v_uid IS NULL THEN RETURN jsonb_build_object('kind','error','code','UNAUTHENTICATED'); END IF;
   IF NOT EXISTS (SELECT 1 FROM public.accounts WHERE user_id=v_uid AND status='active') THEN
@@ -1355,7 +1370,7 @@ LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, public, private, storage
 AS $$
 DECLARE
-  v_uid uuid:=auth.uid(); v_asset public.assets%ROWTYPE; v_seq bigint; v_snapshot jsonb; v_obj storage.objects%ROWTYPE;
+  v_uid uuid:=private.tuck_current_user_id(); v_asset public.assets%ROWTYPE; v_seq bigint; v_snapshot jsonb; v_obj storage.objects%ROWTYPE;
 BEGIN
   IF v_uid IS NULL THEN RETURN jsonb_build_object('kind','error','code','UNAUTHENTICATED'); END IF;
   IF NOT EXISTS (SELECT 1 FROM public.accounts WHERE user_id=v_uid AND status='active') THEN
@@ -1442,13 +1457,13 @@ ALTER FUNCTION public.tuck_bootstrap(jsonb) OWNER TO tuck_rpc_owner;
 ALTER FUNCTION public.tuck_request_account_deletion() OWNER TO tuck_rpc_owner;
 ALTER FUNCTION public.tuck_create_asset_staging(text,text,bigint) OWNER TO tuck_rpc_owner;
 ALTER FUNCTION public.tuck_finalize_asset(text,text) OWNER TO tuck_rpc_owner;
+ALTER FUNCTION private.tuck_current_user_id() OWNER TO tuck_rpc_owner;
 ALTER FUNCTION private.initialize_tuck_account() OWNER TO tuck_rpc_owner;
 REVOKE CREATE ON SCHEMA public, private FROM tuck_rpc_owner;
 
--- SECURITY DEFINER functions resolve the schema-qualified auth.uid() helper as
--- tuck_rpc_owner. Schema USAGE is the only auth privilege this role needs;
--- it receives no auth table privileges or auth-role membership.
-GRANT USAGE ON SCHEMA auth TO tuck_rpc_owner;
+-- Hardened RPC identity is read through private.tuck_current_user_id(), which
+-- mirrors auth.uid() JWT-sub semantics without requiring tuck_rpc_owner to use
+-- the protected auth schema or read auth tables.
 
 REVOKE EXECUTE ON FUNCTION public.tuck_push_mutations(jsonb) FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.tuck_pull_changes(jsonb) FROM PUBLIC, anon;
