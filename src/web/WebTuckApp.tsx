@@ -8,6 +8,7 @@ import {
   TextInput,
   useWindowDimensions,
   View,
+  type ViewStyle,
 } from 'react-native';
 import { AppIcon } from '../ui/components/AppIcon';
 import { colors, minimumTouchSize, radii, space } from '../theme/tokens';
@@ -24,6 +25,16 @@ type TypeFilter = 'all' | WebItemKind;
 type EditorState = { kind: 'create'; itemKind: Exclude<WebItemKind, 'image'>; collectionId: string | null } | { kind: 'edit'; id: string } | null;
 
 const emptySnapshot: WebLocalSnapshot = { items: [], collections: [], schemaVersion: 1, seeded: false };
+
+type WebTransitionViewStyle = ViewStyle & {
+  transitionDuration?: string;
+  transitionProperty?: string;
+};
+
+const webCardTransition: WebTransitionViewStyle = {
+  transitionDuration: '170ms',
+  transitionProperty: 'transform, box-shadow, border-color, background-color',
+};
 
 function formatRelativeTime(timestamp: number): string {
   const diff = Math.max(0, Date.now() - timestamp);
@@ -162,7 +173,7 @@ function ItemCard({ repository, item, collectionName, onOpen }: {
       onPress={onOpen}
       onHoverIn={() => setHovered(true)}
       onHoverOut={() => setHovered(false)}
-      style={({ pressed }) => [styles.card, item.kind === 'image' && styles.imageCard, hovered && styles.cardHovered, pressed && styles.cardPressed]}
+      style={({ pressed }) => [styles.card, webCardTransition, item.kind === 'image' && styles.imageCard, hovered && styles.cardHovered, pressed && styles.cardPressed]}
     >
       {item.kind === 'image' ? (
         <LocalImage repository={repository} imageId={item.imageId} label={`${item.title || 'Untitled'} preview`} style={styles.cardImage} />
@@ -688,7 +699,7 @@ const styles = StyleSheet.create({
   itemSection: { gap: 10, marginBottom: 28 },
   sectionEyebrow: { color: colors.tertiaryText, fontSize: 10, lineHeight: 15, fontWeight: '850' as never, letterSpacing: 1.15, paddingHorizontal: 2 },
   cardGrid: { gap: 10 },
-  card: { borderRadius: 18, backgroundColor: colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: '#DDD8CD', overflow: 'hidden', boxShadow: '0 2px 8px rgba(38, 41, 37, 0.025)' as never, transitionDuration: '170ms' as never, transitionProperty: 'transform, box-shadow, border-color, background-color' as never },
+  card: { borderRadius: 18, backgroundColor: colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: '#DDD8CD', overflow: 'hidden', boxShadow: '0 2px 8px rgba(38, 41, 37, 0.025)' as never },
   imageCard: {},
   cardHovered: { borderColor: '#CEC8BB', boxShadow: '0 8px 24px rgba(38,41,37,0.07)' as never, transform: [{ translateY: -1 }] },
   cardPressed: { backgroundColor: '#FAF8F3', transform: [{ scale: 0.997 }] },

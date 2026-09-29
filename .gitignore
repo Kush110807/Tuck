@@ -46,3 +46,6 @@ yarn-error.*
 !.env.example
 supabase/.branches/
 supabase/.temp/
+
+# generated static Web export
+/dist-web/

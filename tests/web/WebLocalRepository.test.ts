@@ -54,7 +54,7 @@ describe('competition WebLocalRepository', () => {
   });
 
   it('persists image Blob data, replacement and hard-delete cleanup', async () => {
-    const { repository } = makeRepo();
+    const { database, repository } = makeRepo();
     await repository.initialize();
     const firstBlob = new Blob(['first-image'], { type: 'image/png' });
     const item = await repository.createImage(firstBlob, 'first.png', 'Visual');
