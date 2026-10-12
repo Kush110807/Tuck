@@ -38,7 +38,9 @@
     "backend:reset": "supabase db reset",
     "test:backend:db": "supabase test db",
     "test:backend:live": "node tests/backend/live-postgres.mjs",
-    "web:build": "expo export --platform web --output-dir dist-web"
+    "web:build": "expo export --platform web --output-dir dist-web",
+    "release:check": "node --test tests/release/verify-web-export.test.mjs",
+    "web:verify": "node scripts/verify-web-export.mjs dist-web"
   },
   "private": true
 }

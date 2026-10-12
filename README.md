@@ -1,99 +1,100 @@
-# Tuck — BYTE App Development Stage 1
+# Tuck — save it now, find it later
 
-**Status: Phase 4 repaired candidate — verification incomplete.** This revision starts from the independently audited Phase 2 commit `9ab9be28d70c66235a2aabd287b87ed5c1c9a568` and repairs findings P3-01 through P3-06. It is **not** declared submission-ready: clean dependency-backed project checks, an Android native build/install, physical-phone verification, and an independent re-review of this repaired revision still require evidence.
+**Competition MVP · Folded-note visual identity · Local-first on Android and web**
 
-## Stage 1 scope
+Tuck is a save-for-later workspace for **notes, links and images**. Capture an idea, group it in a Collection, add tags, find it by search, pin it or put it in Archive. The accepted competition edition is deliberately quick to use without a login screen or an always-on server.
 
-Tuck is an Android-first, single-device save-for-later app for **notes, links, and images**. It includes Inbox, Editor, Detail, and Archive; text search; type and tag filters; create/view/edit/delete; archive/restore; external link opening; local SQLite persistence; and persistent app-owned image files.
+## What's in the competition build
 
-Deliberately out of scope: login/authentication, backend/cloud sync, multi-device data, Share-menu intake, AI, notifications, and archive undo.
+| Platform | Entry point | Persistence | Can run without the developer laptop? |
+|---|---|---|---|
+| Web showcase | `App.web.tsx` | Browser IndexedDB (`tuck-web-local`) | Yes, after static deployment |
+| Android app | `App.tsx` | Device SQLite and app-owned image files | Yes, after installing a **standalone APK** |
 
-The production app starts empty. Preview modules and fixture data remain test/development-only and are not imported by the production graph.
+A new browser profile starts with a small one-time example library. Judges can create, edit, archive, search and delete their own items. These changes are stored in **that browser profile only**. Android stores its own local data. **Items are not synchronized between Android and web in the competition entry points.**
 
-## Architecture
+The repository includes experimental/future Supabase Auth, PostgreSQL, RLS, Storage and sync code from Phases 6B–6D. These paths are intentionally **not activated** by the competition application entry points. Do not describe the competition demo as a live cloud-synced product.
 
-Production startup creates one shared `createTuckDataLayer()` and one app-level `MutationMailbox`. `BootController` initializes the metadata repository before navigation mounts. Screen wrappers keep controllers stable for a route, subscribe/unsubscribe to controller notifications, reread controller props after each notification, and connect focus to Inbox/Archive/Detail refresh.
+## Features
 
-- `src/ui/**` — presentational screens/components and render fallbacks.
-- `src/controllers/**` — screen state, pending guards, picker/link adapters, stale-response handling, conflict/confirmation logic.
-- `src/domain/**` — validation, normalization, search rules, supported-image byte-format detection.
-- `src/data/**` — SQLite repository and app-owned image persistence/validation.
-- `src/navigation/**` — native-stack wiring, guarded Android Back integration, navigation actions, one-shot mutation mailbox.
+- Notes, links, images; create, inspect, edit and delete
+- Collections, tags, search, filters, pin and Archive/restore
+- Local persistence across restarts on the same device/browser profile
+- Responsive web workspace and Android-first mobile UI
+- Browser-local image blobs and Android-owned persistent image files
+- Calm neutral/forest-green visual system with folded-note mark
 
-See `docs/architecture.md`, `docs/CONTRACT_RULES.md`, and `docs/phase4-verification.md`.
+## Prerequisites
 
-## Phase 4 repair summary
-
-The repaired candidate addresses all six independent findings without adding deferred features:
-
-1. **P3-01 — startup maintenance boundary:** SQLite open/migration/integrity failures and database failures in maintenance metadata remain fatal. Physical cleanup failures stay queued, while filesystem-only image enumeration/reconciliation failures no longer block otherwise readable metadata. Skipped reconciliation remains pending for bounded retry.
-2. **P3-02 — image-resolution degradation:** Detail and edit Editor retain metadata/draft/actions when image resolution itself fails. A distinct `unavailable` image state carries the error and supports retry. Ordinary `missing` remains separate.
-3. **P3-03 — picker permission gate:** Android/system image-library launch no longer requests media-library permission as a prerequisite. Cancellation remains distinct from provider/launch failure. The app config also disables unused camera/audio permission injection and blocks legacy broad external-storage permissions for this library-only flow.
-4. **P3-04 — image validation/render recovery:** picker MIME metadata is advisory/optional. The store checks actual bytes for JPEG/PNG/WebP identity, enforces the actual 10 MiB limit, probes the native image decoder before returning a persistent reference, and adds `Image.onError` fallbacks for later rendering failures. Failed replacement still leaves the old item/image intact.
-5. **P3-05 — disappeared edit target:** confirmed `NOT_FOUND` during initial edit load, conflict refresh, or save returns once to Inbox with explanatory one-shot feedback; transient DB failures do not take that path.
-6. **P3-06 — active tag visibility:** an already-selected tag remains visible and individually clearable even when another AND-combined criterion yields zero rows.
-
-The prior explicit edit-conflict behavior is preserved: the local draft is not silently rebased or retried, and a second concurrent modification requires another explicit overwrite confirmation.
-
-## Image validation boundary
-
-Tuck now validates supported selections in layers:
-
-- actual file size is checked against 10 MiB;
-- actual bytes must identify as JPEG, PNG, or WebP rather than relying on MIME/extension;
-- if the picker supplied a supported MIME value, it must agree with detected bytes;
-- React Native's native image decoder is probed with `Image.getSize()` before the persistent path is accepted;
-- the rendered `<Image>` also has `onError` fallback so a stored file that later becomes unreadable does not hide metadata or loop retries.
-
-This is a proportionate pre-commit validation strategy, not a claim to implement a full independent image codec/parser. Exact Android content-provider behavior and decoder/render parity remain native-device verification items.
-
-## Pinned runtime
-
-The manifest/lockfile still use the Phase 2 Expo SDK 57 stack: Expo `~57.0.25`, React Native `0.86.3`, React `19.2.3`, SQLite `~57.0.3`, FileSystem `~57.0.7`, and ImagePicker `~57.0.20`. **No new dependency was added for Phase 4.**
-
-Use Node 22.13 or newer for Expo SDK 57. The Phase 4 environment used Node `22.16.0` and npm `10.9.2`.
-
-## Fresh-checkout verification commands
+Node **22.16.0** and npm 10+ are the pinned development environment. The repository contains `package-lock.json`. A complete online package installation is necessary on a fresh machine.
 
 ```bash
 npm ci
+npm run release:check
+npx expo install --check
 npm run typecheck
 npm test
-npm run export:android
-npx expo install --check
 ```
 
-`npm run export:android` is a JavaScript/static Expo export check. It is **not** a native APK/install pass.
+## Run for development
 
-### Current Phase 4 verification status
+```bash
+npm run web      # Metro development server for browser
+npm run android  # Expo development flow for Android
+```
 
-- Phase 2 candidate ZIP identity and embedded starting commit were verified before repairs.
-- Repair source and regression coverage are committed on a repair branch descended directly from the required starting commit.
-- Supplemental dependency-free production TypeScript for contracts/domain/core controllers passed with system TypeScript 5.8.3 and no production typing stubs.
-- Supplemental repaired-source execution passed controller, startup-boundary, image-validation, and picker scenarios; exact counts and limits are in `docs/phase4-verification.md`.
-- Clean online `npm ci` is **BLOCKED** by the execution environment transport timeout. One offline install check is **BLOCKED** with `ENOTCACHED` for `zod-3.25.76.tgz`.
-- Because the dependency tree is absent, canonical `npm run typecheck`, `npm test`, `npm run export:android`, and `npx expo install --check` are **BLOCKED**, not passed.
-- Android native launch, APK build/install, and physical-phone tests are **NOT RUN**.
+These commands **do require** a running development server/CMD session. They are not how judges should launch a published app.
 
-## Phone verification
+## Publish the standalone web showcase
 
-Once package/build access is available, use the exact packaged repair commit and complete `docs/qa-plan.md`. Record source SHA, build/client ID, phone model, Android version, and each result. Focused Phase 4 checks include image-storage startup degradation/recovery, image-resolution retry, permission-denied/system-picker behavior, content validation, render fallback, disappeared edit targets, active-tag zero-match recovery, and Android activity destruction during image selection.
+```bash
+EXPO_PUBLIC_BASE_URL=/Tuck npm run web:build   # bash / GitHub Actions
+npm run web:verify -- dist-web /Tuck
+```
 
-## APK route
+On Windows PowerShell:
 
-`eas.json` defines an internal Android APK profile. On an authorized machine/account, keep credentials/signing material local and run:
+```powershell
+$env:EXPO_PUBLIC_BASE_URL = '/Tuck'
+npm run web:build
+npm run web:verify -- dist-web /Tuck
+```
+
+The repository contains `.github/workflows/pages.yml`, which builds and deploys automatically on pushes to `main` **after GitHub Pages is configured to use GitHub Actions**. The workflow runs tests and validates the deployed export's asset URLs. Expected project-site address after a successful deploy: `https://kush110807.github.io/Tuck/` (**do not assume this is live until verified**).
+
+For a site hosted at a domain root, build without `EXPO_PUBLIC_BASE_URL` and verify with `/`.
+
+## Build a standalone Android APK
+
+`npm run export:android` exports JavaScript and assets. **It does not produce an installable APK.** Build an actual signed preview APK using an Expo/EAS account linked to the project:
 
 ```bash
 npm ci
 npm run typecheck
 npm test
-npm run export:android
 npx expo install --check
 npx eas-cli@latest build --platform android --profile preview
 ```
 
-If the repo is not linked to an EAS project, initialize/link it locally first. Do not treat Metro or a JavaScript export as a native-build pass.
+`eas.json` requests an internal-distribution APK. Download the APK from the completed EAS build, install it on a real Android device, and test cold start, restart, airplane mode, and CRUD. Once installed, it will **not need CMD, Metro, or the developer's laptop** to launch.
 
-## Independent re-review
+## Release and submission
 
-Use `docs/independent-rereview-handoff.md` in the existing Phase 3 review context. The original audit evidence is preserved byte-for-byte at `docs/evidence/Tuck_Phase3_Independent_Audit_9ab9be2.zip`; its SHA-256 is recorded in the Phase 4 verification document. The original `audit-core-scenarios.js` intentionally asserted the old broken behavior for two findings and must **not** be counted unchanged as a repair pass.
+See [deployment runbook](docs/competition/WEB_DEPLOYMENT.md), [release verification](docs/release.md), and [submission checklist](docs/competition/SUBMISSION_CHECKLIST.md). Keep public demo credentials, secrets and private user data out of the repository and submissions. The browser demo intentionally stores content locally; clearing site data, using another browser, or using private/incognito mode may lose/hide content.
+
+### Repository layout
+
+- `src/web/` — competition browser client and IndexedDB repository
+- `src/app/NativeTuckApp.tsx`, `src/data/` — Android competition client and SQLite/image foundation
+- `src/ui/`, `src/controllers/`, `src/domain/` — Android UI, orchestration, and domain rules
+- `src/auth/`, `src/sync/`, `supabase/` — preserved future cloud infrastructure (not on competition entry path)
+- `tests/` — application tests, including dependency-free release export tests
+- `docs/competition/` — product architecture, visual QA, web deployment and submission guide
+
+## Known limitations
+
+This is **not** a multi-user cloud notebook, extension, AI assistant or collaborative editor. Browser data is device/profile-specific; web storage can be evicted by browser policy. Native APK generation and deployment require external signing/build infrastructure; a JavaScript export is not a replacement. See the release report for **verified versus blocked** checks.
+
+## License notice
+
+The existing `LICENSE` file is the inherited Expo template license (its copyright holder is Expo / 650 Industries). It must **not** be presented as a confirmed license for the original Tuck application code. The repository owner should choose/approve the project's own license or distribution terms before granting reuse rights.

@@ -1,0 +1,50 @@
+
+> tuck@1.0.0 release:check
+> node --test tests/release/verify-web-export.test.mjs
+
+TAP version 13
+# Subtest: accepts root export with existing local JS and icon
+ok 1 - accepts root export with existing local JS and icon
+  ---
+  duration_ms: 8.035087
+  type: 'test'
+  ...
+# Subtest: accepts project export with subpath and query string
+ok 2 - accepts project export with subpath and query string
+  ---
+  duration_ms: 2.656171
+  type: 'test'
+  ...
+# Subtest: rejects root-relative assets that break a GitHub project site
+ok 3 - rejects root-relative assets that break a GitHub project site
+  ---
+  duration_ms: 3.994808
+  type: 'test'
+  ...
+# Subtest: rejects missing assets and local development dependencies
+ok 4 - rejects missing assets and local development dependencies
+  ---
+  duration_ms: 1.889423
+  type: 'test'
+  ...
+# Subtest: rejects unsafe base paths and escape attempts
+ok 5 - rejects unsafe base paths and escape attempts
+  ---
+  duration_ms: 3.268368
+  type: 'test'
+  ...
+# Subtest: rejects missing index
+ok 6 - rejects missing index
+  ---
+  duration_ms: 0.476328
+  type: 'test'
+  ...
+1..6
+# tests 6
+# suites 0
+# pass 6
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 160.519151

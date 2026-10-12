@@ -28,6 +28,8 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Verify dependency-free release checks
+        run: npm run release:check
       - name: Install
         run: npm ci
       - name: Verify
@@ -41,6 +43,8 @@ jobs:
         run: npm run web:build
         env:
           EXPO_PUBLIC_BASE_URL: /${{ github.event.repository.name }}
+      - name: Verify export base path and local assets
+        run: npm run web:verify -- dist-web "/${{ github.event.repository.name }}"
       - name: Disable Jekyll
         run: touch dist-web/.nojekyll
       - name: Upload Pages artifact
