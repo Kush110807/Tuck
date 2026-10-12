@@ -49,7 +49,7 @@ These commands **do require** a running development server/CMD session. They are
 
 ```bash
 EXPO_PUBLIC_BASE_URL=/Tuck npm run web:build   # bash / GitHub Actions
-npm run web:verify -- dist-web /Tuck
+npm run web:verify -- /Tuck
 ```
 
 On Windows PowerShell:
