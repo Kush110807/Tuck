@@ -4,6 +4,34 @@
 
 Tuck is a save-for-later workspace for **notes, links and images**. Capture an idea, group it in a Collection, add tags, find it by search, pin it or put it in Archive. The accepted competition edition is deliberately quick to use without a login screen or an always-on server.
 
+## BYTE App Development — Submission Summary
+
+**Stage reached:** Stage 1 — Build the Local App.
+
+**Tech stack:** TypeScript, React Native, Expo SDK 57, Expo SQLite, Expo FileSystem, Expo ImagePicker, React Native Web and IndexedDB.
+
+**Architecture:**
+
+```text
+Android App (Expo / React Native)
+              |
+       UI & Controllers
+              |
+    SQLite + Local Images
+
+Web Demo (React Native Web)
+              |
+        Web Application
+              |
+   IndexedDB + Image Blobs
+```
+
+**Technical decisions:** Tuck prioritises fast local saves, offline usability, persistent storage and a straightforward interface. Android and web operate independently without a required backend or login.
+
+**Known limitations:** Cross-device synchronization and mobile Share Into App are not enabled in the competition build. Browser data is tied to the browser profile and may be lost if site storage is cleared.
+
+The Android APK and web showcase can run without the developer's laptop or development server.
+
 ## What's in the competition build
 
 | Platform | Entry point | Persistence | Can run without the developer laptop? |
@@ -57,7 +85,7 @@ On Windows PowerShell:
 ```powershell
 $env:EXPO_PUBLIC_BASE_URL = '/Tuck'
 npm run web:build
-npm run web:verify -- dist-web /Tuck
+npm run web:verify -- /Tuck
 ```
 
 The repository contains `.github/workflows/pages.yml`, which builds and deploys automatically on pushes to `main` **after GitHub Pages is configured to use GitHub Actions**. The workflow runs tests and validates the deployed export's asset URLs. Expected project-site address after a successful deploy: `https://kush110807.github.io/Tuck/` (**do not assume this is live until verified**).
@@ -98,30 +126,3 @@ This is **not** a multi-user cloud notebook, extension, AI assistant or collabor
 ## License notice
 
 The existing `LICENSE` file is the inherited Expo template license (its copyright holder is Expo / 650 Industries). It must **not** be presented as a confirmed license for the original Tuck application code. The repository owner should choose/approve the project's own license or distribution terms before granting reuse rights.
-## BYTE App Development — Submission Summary
-
-**Stage reached:** Stage 1 — Build the Local App.
-
-**Tech stack:** TypeScript, React Native, Expo SDK 57, Expo SQLite, Expo FileSystem, Expo ImagePicker, React Native Web and IndexedDB.
-
-**Architecture:**
-
-```text
-Android App (Expo / React Native)
-              |
-       UI & Controllers
-              |
-    SQLite + Local Images
-
-Web Demo (React Native Web)
-              |
-        Web Application
-              |
-   IndexedDB + Image Blobs
-```
-
-**Technical decisions:** Tuck prioritises fast local saves, offline usability, persistent storage and a straightforward interface. Android and web operate independently without a required backend or login.
-
-**Known limitations:** Cross-device synchronization and mobile Share Into App are not enabled in the competition build. Browser data is tied to the browser profile and may be lost if site storage is cleared.
-
-The Android APK and web showcase can run without the developer's laptop or development server.
