@@ -32,6 +32,16 @@ Web Demo (React Native Web)
 
 The Android APK and web showcase can run without the developer's laptop or development server.
 
+## Live Demo & Android APK
+
+**Web App:** [Try Tuck Online](https://kush110807.github.io/Tuck/)
+
+**Android APK:** [Download Tuck for Android](https://expo.dev/accounts/kush_11.08/projects/tuck/builds/cfbca540-3e01-4b19-990c-863042d39651)
+
+The Android APK runs independently without Expo Go, CMD, or a development server. The web demo is accessible directly through a browser.
+
+**Note:** Data is stored locally on each device or browser. Cross-device synchronization is not enabled in the competition version.
+
 ## What's in the competition build
 
 | Platform | Entry point | Persistence | Can run without the developer laptop? |
