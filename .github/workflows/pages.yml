@@ -44,7 +44,7 @@ jobs:
         env:
           EXPO_PUBLIC_BASE_URL: /${{ github.event.repository.name }}
       - name: Verify export base path and local assets
-        run: npm run web:verify -- dist-web "/${{ github.event.repository.name }}"
+        run: npm run web:verify -- "/${{ github.event.repository.name }}"
       - name: Disable Jekyll
         run: touch dist-web/.nojekyll
       - name: Upload Pages artifact
