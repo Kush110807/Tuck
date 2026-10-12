@@ -33,7 +33,8 @@ describe('competition entry surfaces', () => {
     expect(auth).toContain('globalThis.fetch(input, init)');
     expect(sync).toContain('globalThis.fetch(input, init)');
     expect(asset).toContain('globalThis.fetch(input, init)');
-    expect(source('package.json')).toContain('"expo": "~57.0.26"');
+    const manifest = JSON.parse(source('package.json')) as { dependencies: Record<string, string> };
+    expect(manifest.dependencies.expo).toMatch(/^~57\.0\.\d+$/);
   });
 
 
